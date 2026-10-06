@@ -17,24 +17,36 @@ export async function POST(req: Request) {
     let user = await User.findOne({ email: demoEmail });
 
     if (!user) {
-      const passwordHash = await bcrypt.hash('RuhiAiDemo2026!', 10);
-      user = await User.create({
-        name: demoName,
-        email: demoEmail,
-        passwordHash,
-        role: role === 'admin' ? 'admin' : 'user',
-        plan: plan || 'pro',
-        preferences: {
-          theme: 'dark',
-          defaultModel: 'ruhi-balanced',
-          systemPrompt: 'You are Ruhi, a highly intelligent, empathetic, thoughtful, and capable AI companion.',
-          temperature: 0.7,
-          streamResponses: true,
-          webSearchDefault: false,
-          voiceEnabled: true,
-          voiceName: 'Ruhi Natural',
-        },
-      });
+      try {
+        const passwordHash = await bcrypt.hash('RuhiAiDemo2026!', 10);
+        user = await User.create({
+          name: demoName,
+          email: demoEmail,
+          passwordHash,
+          role: role === 'admin' ? 'admin' : 'user',
+          plan: plan || 'pro',
+          preferences: {
+            theme: 'dark',
+            defaultModel: 'ruhi-balanced',
+            systemPrompt: 'You are Ruhi, a highly intelligent, empathetic, thoughtful, and capable AI companion.',
+            temperature: 0.7,
+            streamResponses: true,
+            webSearchDefault: false,
+            voiceEnabled: true,
+            voiceName: 'Ruhi Natural',
+          },
+        });
+      } catch (createErr: any) {
+        if (createErr.code === 11000) {
+          user = await User.findOne({ email: demoEmail });
+        } else {
+          throw createErr;
+        }
+      }
+
+      if (!user) {
+        throw new Error('Failed to initialize demo user');
+      }
 
       // Seed a starter project
       await Project.create({
