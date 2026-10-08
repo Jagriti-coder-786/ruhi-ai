@@ -7,12 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx tests/run-tests.ts"
+    "test": "npx tsx tests/run-tests.ts && npx tsx tests/test-execution-engine.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@webcontainer/api": "^1.6.4",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
+    "dotenv": "^18.0.6",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.52.0",
     "mongoose": "^9.11.0",
@@ -27,6 +29,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
+    "@types/dotenv": "^6.1.1",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^20",
     "@types/react": "^19",

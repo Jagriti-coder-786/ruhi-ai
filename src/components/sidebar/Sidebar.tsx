@@ -17,6 +17,9 @@ import {
   Trash2,
   Bookmark,
   MessageSquare,
+  LayoutGrid,
+  Plug,
+  CalendarClock,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { IConversation } from '@/types';
@@ -32,6 +35,9 @@ interface SidebarProps {
   onOpenUpgrade: () => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  onOpenWorkspace?: () => void;
+  onOpenConnectors?: () => void;
+  onOpenTasks?: () => void;
 }
 
 export function Sidebar({
@@ -45,6 +51,9 @@ export function Sidebar({
   onOpenUpgrade,
   isCollapsed,
   onToggleCollapse,
+  onOpenWorkspace,
+  onOpenConnectors,
+  onOpenTasks,
 }: SidebarProps) {
   const { user, logout } = useAuth();
 
@@ -106,6 +115,45 @@ export function Sidebar({
           <Search className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
           {!isCollapsed && <span>Search conversations</span>}
         </button>
+
+        {onOpenWorkspace && (
+          <button
+            onClick={onOpenWorkspace}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800/80 transition-colors ${
+              isCollapsed ? 'justify-center px-0' : ''
+            }`}
+            title="Artifact Workspace"
+          >
+            <LayoutGrid className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+            {!isCollapsed && <span>Artifact Workspace</span>}
+          </button>
+        )}
+
+        {onOpenConnectors && (
+          <button
+            onClick={onOpenConnectors}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800/80 transition-colors ${
+              isCollapsed ? 'justify-center px-0' : ''
+            }`}
+            title="Workspace Connectors"
+          >
+            <Plug className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+            {!isCollapsed && <span>Connectors</span>}
+          </button>
+        )}
+
+        {onOpenTasks && (
+          <button
+            onClick={onOpenTasks}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white hover:bg-slate-800/60 border border-slate-800/80 transition-colors ${
+              isCollapsed ? 'justify-center px-0' : ''
+            }`}
+            title="Scheduled Automations"
+          >
+            <CalendarClock className="w-3.5 h-3.5 text-emerald-400 flex-shrink-0" />
+            {!isCollapsed && <span>Automations</span>}
+          </button>
+        )}
       </div>
 
       {/* Navigation & Conversations List */}

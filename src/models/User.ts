@@ -39,6 +39,8 @@ const UserSchema = new Schema<IUserDocument>(
       webSearchDefault: { type: Boolean, default: false },
       voiceEnabled: { type: Boolean, default: true },
       voiceName: { type: String, default: 'Ruhi Natural' },
+      responseStyle: { type: String, enum: ['balanced', 'concise', 'detailed', 'professional', 'creative'], default: 'balanced' },
+      responseLength: { type: String, enum: ['standard', 'short', 'detailed'], default: 'standard' },
     },
     isActive: { type: Boolean, default: true },
   },

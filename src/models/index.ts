@@ -8,3 +8,6 @@ export { Project } from './Project';
 export { Subscription } from './Subscription';
 export { Usage } from './Usage';
 export { AuditLog } from './AuditLog';
+export { Artifact } from './Artifact';
+export { Connector } from './Connector';
+export { ScheduledTask } from './ScheduledTask';

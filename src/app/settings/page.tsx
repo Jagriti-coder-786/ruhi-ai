@@ -30,6 +30,8 @@ export default function SettingsPage() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [temperature, setTemperature] = useState(0.7);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [responseStyle, setResponseStyle] = useState<'balanced' | 'concise' | 'detailed' | 'professional' | 'creative'>('balanced');
+  const [responseLength, setResponseLength] = useState<'standard' | 'short' | 'detailed'>('standard');
 
   const [savedNotice, setSavedNotice] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -47,6 +49,8 @@ export default function SettingsPage() {
         setSystemPrompt(user.preferences.systemPrompt || 'You are Ruhi, a highly intelligent, empathetic, thoughtful, and capable AI companion.');
         setTemperature(user.preferences.temperature ?? 0.7);
         setVoiceEnabled(user.preferences.voiceEnabled ?? true);
+        setResponseStyle(user.preferences.responseStyle || 'balanced');
+        setResponseLength(user.preferences.responseLength || 'standard');
       }
     }
   }, [user]);
@@ -80,6 +84,8 @@ export default function SettingsPage() {
             systemPrompt,
             temperature,
             voiceEnabled,
+            responseStyle,
+            responseLength,
           },
         }),
       });
@@ -322,6 +328,38 @@ export default function SettingsPage() {
                       <span>Balanced (0.7)</span>
                       <span>Highly Creative (1.5)</span>
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Response Style & Tone
+                    </label>
+                    <select
+                      value={responseStyle}
+                      onChange={(e) => setResponseStyle(e.target.value as any)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="balanced">Balanced — Natural, warm, intellectually rigorous (Default)</option>
+                      <option value="concise">Concise — Crisp, direct, short summaries only</option>
+                      <option value="detailed">Detailed — Comprehensive deep technical explanations</option>
+                      <option value="professional">Professional — Executive, formal, structured tone</option>
+                      <option value="creative">Creative — Vivid analogies, engaging, expressive</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Default Response Length
+                    </label>
+                    <select
+                      value={responseLength}
+                      onChange={(e) => setResponseLength(e.target.value as any)}
+                      className="w-full px-4 py-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-purple-500"
+                    >
+                      <option value="standard">Standard Length</option>
+                      <option value="short">Short / Direct Answers</option>
+                      <option value="detailed">Detailed / In-Depth Analysis</option>
+                    </select>
                   </div>
 
                   <div className="flex items-center justify-between p-4 rounded-2xl bg-slate-950 border border-slate-800">

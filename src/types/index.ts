@@ -18,6 +18,8 @@ export interface IUser {
     webSearchDefault?: boolean;
     voiceEnabled?: boolean;
     voiceName?: string;
+    responseStyle?: 'balanced' | 'concise' | 'detailed' | 'professional' | 'creative';
+    responseLength?: 'short' | 'standard' | 'detailed';
   };
   isActive: boolean;
   createdAt: string;
@@ -53,6 +55,14 @@ export interface ICitation {
   page?: number;
 }
 
+export interface IMessageVersion {
+  content: string;
+  model?: string;
+  citations?: ICitation[];
+  toolCalls?: IToolCall[];
+  createdAt: string;
+}
+
 export interface IMessage {
   _id: string;
   conversationId: string;
@@ -60,6 +70,10 @@ export interface IMessage {
   role: MessageRole;
   content: string;
   modelId?: string;
+  versions?: IMessageVersion[];
+  activeVersionIndex?: number;
+  parentMessageId?: string;
+  branchId?: string;
   attachments?: IAttachment[];
   toolCalls?: IToolCall[];
   citations?: ICitation[];
@@ -69,6 +83,8 @@ export interface IMessage {
     totalTokens: number;
   };
   feedback?: 'like' | 'dislike';
+  feedbackReason?: string;
+  feedbackComment?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -81,9 +97,14 @@ export interface IConversation {
   projectId?: string;
   pinned: boolean;
   archived: boolean;
+  isTemporary?: boolean;
+  expiresAt?: string;
+  shareToken?: string;
+  isShared?: boolean;
   metadata?: {
     lastMessagePreview?: string;
     totalMessages?: number;
+    summary?: string;
   };
   createdAt: string;
   updatedAt: string;
@@ -167,7 +188,7 @@ export interface IUsage {
 
 export interface ModelCapability {
   id: string;
-  provider: 'gemini' | 'openai' | 'anthropic' | 'grok' | 'openrouter' | 'custom';
+  provider: 'gemini' | 'openai' | 'anthropic' | 'grok' | 'openrouter' | 'custom' | 'groq';
   displayName: string;
   tagline: string;
   contextWindow: number;
@@ -176,5 +197,77 @@ export interface ModelCapability {
   supportsImageGen: boolean;
   isPremiumOnly: boolean;
   isAvailable: boolean;
-  speed: 'ultra-fast' | 'balanced' | 'deep-reasoning';
+  speed: 'ultra-fast' | 'fast' | 'balanced' | 'deep-reasoning';
 }
+
+export interface IArtifact {
+  _id: string;
+  userId: string;
+  conversationId?: string;
+  projectId?: string;
+  title: string;
+  type: 'document' | 'code' | 'spreadsheet' | 'presentation';
+  content: string;
+  language?: string;
+  metadata?: Record<string, unknown>;
+  versions?: Array<{
+    content: string;
+    title?: string;
+    createdAt: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IConnector {
+  _id: string;
+  userId: string;
+  provider: 'google_drive' | 'github' | 'slack' | 'notion' | 'dropbox';
+  name: string;
+  status: 'connected' | 'disconnected';
+  accountEmail?: string;
+  scopes: string[];
+  lastSyncedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IScheduledTask {
+  _id: string;
+  userId: string;
+  title: string;
+  prompt: string;
+  scheduleType: 'once' | 'daily' | 'weekly' | 'monthly';
+  scheduledTime?: string;
+  isActive: boolean;
+  lastRunAt?: string;
+  nextRunAt?: string;
+  notifyVia: 'in_app' | 'email';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IDeepResearchPlan {
+  goal: string;
+  steps: Array<{
+    id: string;
+    query: string;
+    status: 'pending' | 'in_progress' | 'completed';
+    findings?: string;
+  }>;
+  summaryReport?: string;
+}
+
+export interface IDataAnalysisResult {
+  columns: string[];
+  rowCount: number;
+  summaryStats: Record<string, { count: number; mean?: number; min?: number; max?: number; unique?: number }>;
+  chartData?: {
+    type: 'bar' | 'line' | 'pie';
+    title: string;
+    labels: string[];
+    data: number[];
+  };
+  insights: string[];
+}
+

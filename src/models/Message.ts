@@ -1,11 +1,35 @@
 import mongoose, { Schema, Model } from 'mongoose';
 
+export interface IMessageVersion {
+  content: string;
+  model?: string;
+  citations?: Array<{
+    title: string;
+    url?: string;
+    snippet: string;
+    sourceType: 'web' | 'document';
+    documentId?: mongoose.Types.ObjectId;
+    page?: number;
+  }>;
+  toolCalls?: Array<{
+    toolName: string;
+    args: Record<string, unknown>;
+    result?: unknown;
+    status: 'pending' | 'success' | 'failed';
+  }>;
+  createdAt: Date;
+}
+
 export interface IMessage {
   conversationId: mongoose.Types.ObjectId;
   userId: mongoose.Types.ObjectId;
   role: 'user' | 'assistant' | 'system' | 'tool';
   content: string;
   model?: string;
+  versions?: IMessageVersion[];
+  activeVersionIndex?: number;
+  parentMessageId?: mongoose.Types.ObjectId;
+  branchId?: string;
   attachments?: Array<{
     name: string;
     type: string;
@@ -36,6 +60,8 @@ export interface IMessage {
     totalTokens: number;
   };
   feedback?: 'like' | 'dislike';
+  feedbackReason?: string;
+  feedbackComment?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -47,6 +73,34 @@ const MessageSchema = new Schema<IMessage>(
     role: { type: String, enum: ['user', 'assistant', 'system', 'tool'], required: true },
     content: { type: String, required: true },
     model: { type: String },
+    versions: [
+      {
+        content: { type: String, required: true },
+        model: { type: String },
+        citations: [
+          {
+            title: { type: String, required: true },
+            url: { type: String },
+            snippet: { type: String, required: true },
+            sourceType: { type: String, enum: ['web', 'document'], default: 'web' },
+            documentId: { type: Schema.Types.ObjectId, ref: 'DocumentRecord' },
+            page: { type: Number },
+          },
+        ],
+        toolCalls: [
+          {
+            toolName: { type: String, required: true },
+            args: { type: Schema.Types.Mixed },
+            result: { type: Schema.Types.Mixed },
+            status: { type: String, enum: ['pending', 'success', 'failed'], default: 'pending' },
+          },
+        ],
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
+    activeVersionIndex: { type: Number, default: 0 },
+    parentMessageId: { type: Schema.Types.ObjectId, ref: 'Message', default: null },
+    branchId: { type: String, default: null },
     attachments: [
       {
         name: { type: String, required: true },
@@ -83,6 +137,8 @@ const MessageSchema = new Schema<IMessage>(
       totalTokens: { type: Number, default: 0 },
     },
     feedback: { type: String, enum: ['like', 'dislike'] },
+    feedbackReason: { type: String, default: null },
+    feedbackComment: { type: String, default: null },
   },
   { timestamps: true }
 );

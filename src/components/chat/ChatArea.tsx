@@ -21,9 +21,21 @@ import {
   Image as ImageIcon,
   Calculator,
   Lock,
+  Share2,
+  Download,
+  Volume2,
+  VolumeX,
+  Pencil,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  LayoutGrid,
+  Plug,
+  CalendarClock,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import MarkdownRenderer from './MarkdownRenderer';
+import { FeedbackModal } from '@/components/modals/FeedbackModal';
 import { IMessage, ModelCapability, ICitation, IAttachment } from '@/types';
 
 interface ChatAreaProps {
@@ -44,6 +56,17 @@ interface ChatAreaProps {
   onSelectModel: (modelId: string) => void;
   availableModels: ModelCapability[];
   currentCitations: ICitation[];
+  toolStatus?: string | null;
+  onEditMessage?: (messageId: string, newContent: string) => void;
+  onSwitchVersion?: (messageId: string, versionIndex: number) => void;
+  onOpenShare?: () => void;
+  onOpenExport?: () => void;
+  isTemporaryChat?: boolean;
+  onToggleTemporaryChat?: () => void;
+  onFeedback?: (messageId: string, type: 'like' | 'dislike', reason?: string, comment?: string) => Promise<void>;
+  onOpenWorkspace?: (tab?: 'document' | 'code' | 'spreadsheet' | 'presentation') => void;
+  onOpenConnectors?: () => void;
+  onOpenTasks?: () => void;
 }
 
 export function ChatArea({
@@ -59,6 +82,17 @@ export function ChatArea({
   onSelectModel,
   availableModels,
   currentCitations,
+  toolStatus,
+  onEditMessage,
+  onSwitchVersion,
+  onOpenShare,
+  onOpenExport,
+  isTemporaryChat = false,
+  onToggleTemporaryChat,
+  onFeedback,
+  onOpenWorkspace,
+  onOpenConnectors,
+  onOpenTasks,
 }: ChatAreaProps) {
   const { user } = useAuth();
   const [input, setInput] = useState('');
@@ -68,6 +102,16 @@ export function ChatArea({
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<ICitation | null>(null);
 
+  // Editing state for user messages
+  const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+
+  // Speech (read aloud) state
+  const [speakingMsgId, setSpeakingMsgId] = useState<string | null>(null);
+
+  // Feedback modal
+  const [feedbackModalMsgId, setFeedbackModalMsgId] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -76,6 +120,15 @@ export function ChatArea({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, currentStreamingText]);
+
+  // Cleanup speech on unmount
+  useEffect(() => {
+    return () => {
+      if (typeof window !== 'undefined' && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
 
   // Adjust textarea height dynamically
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -127,7 +180,6 @@ export function ChatArea({
         };
         reader.readAsDataURL(file);
       } else {
-        // Document upload to RAG pipeline
         const formData = new FormData();
         formData.append('file', file);
         try {
@@ -142,86 +194,146 @@ export function ChatArea({
               {
                 name: file.name,
                 type: 'document',
-                mimeType: file.type,
+                mimeType: file.type || 'application/pdf',
                 size: file.size,
-                documentId: data.document?.id,
+                documentId: data.document?._id,
               },
             ]);
           }
         } catch (err) {
-          console.error('File upload error:', err);
+          console.error('File upload failed:', err);
         }
       }
     }
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const removeAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  const removeAttachment = (idx: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handleCopyMessage = async (msgId: string, text: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopiedMsgId(msgId);
+  const handleCopyMessage = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMsgId(id);
     setTimeout(() => setCopiedMsgId(null), 2000);
   };
 
-  const selectedModel = availableModels.find((m) => m.id === selectedModelId) || {
-    id: 'ruhi-balanced',
-    displayName: 'Ruhi Balanced',
-    speed: 'balanced',
-    isPremiumOnly: false,
+  // Text-to-Speech (Read Aloud)
+  const handleToggleSpeak = (id: string, text: string) => {
+    if (typeof window === 'undefined' || !window.speechSynthesis) return;
+
+    if (speakingMsgId === id) {
+      window.speechSynthesis.cancel();
+      setSpeakingMsgId(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const cleanSpeech = text
+      .replace(/```[\s\S]*?```/g, 'Code block omitted.')
+      .replace(/[#*`_~]/g, '')
+      .trim();
+
+    const utterance = new SpeechSynthesisUtterance(cleanSpeech);
+    utterance.rate = 1.0;
+    utterance.pitch = 1.02;
+    utterance.onend = () => setSpeakingMsgId(null);
+    utterance.onerror = () => setSpeakingMsgId(null);
+
+    setSpeakingMsgId(id);
+    window.speechSynthesis.speak(utterance);
   };
+
+  // User Message Editing
+  const handleStartEdit = (msg: IMessage) => {
+    setEditingMsgId(msg._id);
+    setEditingText(msg.content);
+  };
+
+  const handleSaveEdit = (msgId: string) => {
+    if (!editingText.trim()) return;
+    onEditMessage?.(msgId, editingText.trim());
+    setEditingMsgId(null);
+  };
+
+  const currentModel =
+    availableModels.find((m) => m.id === selectedModelId) || availableModels[0];
 
   const starterPrompts = [
     {
-      title: 'Deep Quantum Reasoning',
-      prompt: 'Explain the core principles of quantum computing and how quantum supremacy is achieved.',
-      icon: <Sparkles className="w-4 h-4 text-purple-400" />,
+      title: 'Analyze & Reason',
+      prompt: 'Explain the core difference between optimistic and pessimistic concurrency control with database examples.',
+      icon: <Cpu className="w-4 h-4 text-purple-400" />,
     },
     {
-      title: 'Full-Stack Architecture',
-      prompt: 'Design a scalable multi-tenant RAG architecture with vector chunking and MongoDB.',
-      icon: <Cpu className="w-4 h-4 text-cyan-400" />,
+      title: 'Multilingual Hinglish',
+      prompt: 'bhai mujhe recursion simple language me samjha',
+      icon: <Sparkles className="w-4 h-4 text-pink-400" />,
     },
     {
-      title: 'Analyze Financial Plan',
-      prompt: 'Calculate compound interest on ₹50,000 at 12% annual rate over 10 years with formula breakdown.',
+      title: 'Live News & Research',
+      prompt: 'What happened in AI today? Give me top developments with citations.',
+      icon: <Globe className="w-4 h-4 text-cyan-400" />,
+    },
+    {
+      title: 'Math & Computation',
+      prompt: 'Calculate 98374 × 728.',
       icon: <Calculator className="w-4 h-4 text-emerald-400" />,
-    },
-    {
-      title: 'Generate Neural Visual',
-      prompt: 'Create a hyperrealistic digital artwork of a cosmic library with floating constellations.',
-      icon: <ImageIcon className="w-4 h-4 text-pink-400" />,
     },
   ];
 
+  // Helper to get intelligent follow-up suggestions
+  const getFollowUpSuggestions = (content: string): string[] => {
+    const text = (content || '').toLowerCase();
+    if (text.includes('code') || text.includes('function') || text.includes('def ') || text.includes('const ')) {
+      return [
+        'Can you show a complete runnable example?',
+        'What are common edge cases or pitfalls to avoid?',
+        'How would I write unit tests for this?',
+      ];
+    }
+    if (text.includes('news') || text.includes('source') || text.includes('update') || text.includes('announced')) {
+      return [
+        'What are the broader industry implications?',
+        'Give me a 3-bullet summary of key takeaways',
+        'How does this compare to competing models?',
+      ];
+    }
+    if (text.includes('vs') || text.includes('difference') || text.includes('compare')) {
+      return [
+        'Which one should I choose for production?',
+        'Summarize the key pros & cons in a table',
+        'What are the performance tradeoffs?',
+      ];
+    }
+    return [
+      'Can you explain this with a practical example?',
+      'Summarize this into 3 concise bullet points',
+      'What should be the next step?',
+    ];
+  };
+
   return (
-    <div className="relative flex-1 h-screen flex flex-col bg-[#090d16] overflow-hidden">
+    <div className="flex-1 flex flex-col h-screen bg-[#070a13] text-slate-100 overflow-hidden relative">
       {/* Top Header Bar */}
-      <header className="h-16 border-b border-slate-800/80 px-6 flex items-center justify-between bg-[#080c16]/80 backdrop-blur-md z-20">
+      <header className="h-16 border-b border-slate-800/80 px-4 md:px-8 flex items-center justify-between bg-[#070a13]/80 backdrop-blur-md z-20 flex-shrink-0">
+        {/* Model Selector Pill */}
         <div className="relative">
-          {/* Model Selector Dropdown Button */}
           <button
             onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-800/60 hover:bg-slate-700/60 border border-slate-700/60 text-slate-200 text-xs font-semibold transition-all shadow-sm"
+            className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-purple-500/40 text-xs font-semibold text-slate-200 transition-all shadow-sm"
           >
             <Cpu className="w-3.5 h-3.5 text-purple-400" />
-            <span>{selectedModel.displayName}</span>
-            {selectedModel.isPremiumOnly && (
-              <span className="px-1.5 py-0.5 rounded text-[10px] bg-purple-500/20 text-purple-300 font-bold uppercase">
-                PRO
-              </span>
-            )}
-            <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            <span>{currentModel?.displayName || 'Ruhi Balanced'}</span>
+            <ChevronDown className="w-3 h-3 text-slate-400" />
           </button>
 
-          {/* Model Menu */}
           {modelDropdownOpen && (
-            <div className="absolute top-full left-0 mt-2 w-80 rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl p-2 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-              <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-800">
-                Active Intelligence Models
+            <div className="absolute top-12 left-0 w-72 rounded-2xl bg-slate-900 border border-slate-800 shadow-2xl p-2 z-50 animate-fade-in">
+              <div className="text-[11px] font-semibold text-slate-400 px-3 py-1 uppercase tracking-wider">
+                Select Intelligence Model
               </div>
-              <div className="space-y-1 mt-1 max-h-80 overflow-y-auto">
+              <div className="space-y-1 mt-1">
                 {availableModels.map((m) => {
                   const isLocked = m.isPremiumOnly && user?.plan === 'free';
                   return (
@@ -235,17 +347,17 @@ export function ChatArea({
                           setModelDropdownOpen(false);
                         }
                       }}
-                      className={`w-full text-left p-2.5 rounded-xl transition-all flex items-start justify-between ${
+                      className={`w-full flex items-start justify-between p-2.5 rounded-xl text-left transition-colors ${
                         selectedModelId === m.id
-                          ? 'bg-purple-600/20 border border-purple-500/40 text-white'
-                          : 'hover:bg-slate-800 text-slate-300'
+                          ? 'bg-purple-600/15 border border-purple-500/30 text-white'
+                          : 'hover:bg-slate-800/60 text-slate-300'
                       }`}
                     >
                       <div>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <span className="text-xs font-bold">{m.displayName}</span>
                           {m.isPremiumOnly && (
-                            <span className="px-1.5 py-0.2 rounded text-[9px] bg-purple-500/20 text-purple-300 font-semibold uppercase">
+                            <span className="text-[9px] px-1.5 py-0.2 rounded-full font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
                               PRO
                             </span>
                           )}
@@ -269,8 +381,79 @@ export function ChatArea({
           )}
         </div>
 
-        {/* Right Tools (Web Search Toggle, Voice Mode) */}
-        <div className="flex items-center gap-3">
+        {/* Right Tools (Temporary Chat, Share, Export, Web Search, Voice) */}
+        <div className="flex items-center gap-2 md:gap-3">
+          {/* Temporary Chat Toggle */}
+          <button
+            onClick={onToggleTemporaryChat}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+              isTemporaryChat
+                ? 'bg-amber-500/15 border-amber-500 text-amber-300 shadow-sm shadow-amber-500/20'
+                : 'bg-slate-800/40 border-slate-700/60 text-slate-400 hover:text-slate-200'
+            }`}
+            title="Temporary chats aren't saved to history or memory"
+          >
+            <Clock className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Temp Chat {isTemporaryChat ? 'ON' : 'OFF'}</span>
+          </button>
+
+          {/* Share Button */}
+          {onOpenShare && (
+            <button
+              onClick={onOpenShare}
+              className="p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-colors"
+              title="Share conversation"
+            >
+              <Share2 className="w-3.5 h-3.5 text-indigo-400" />
+            </button>
+          )}
+
+          {/* Export Button */}
+          {onOpenExport && (
+            <button
+              onClick={onOpenExport}
+              className="p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-colors"
+              title="Export conversation (MD, TXT, JSON)"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-400" />
+            </button>
+          )}
+
+          {/* Workspace Button */}
+          {onOpenWorkspace && (
+            <button
+              onClick={() => onOpenWorkspace('document')}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/40 transition-colors shadow-sm"
+              title="Open Workspace (Docs, Code Sandbox, Spreadsheets, Slides)"
+            >
+              <LayoutGrid className="w-3.5 h-3.5" />
+              <span className="hidden md:inline">Workspace</span>
+            </button>
+          )}
+
+          {/* Connectors Button */}
+          {onOpenConnectors && (
+            <button
+              onClick={onOpenConnectors}
+              className="p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-colors"
+              title="Workspace Connectors (Drive, GitHub, Slack, Notion)"
+            >
+              <Plug className="w-3.5 h-3.5 text-cyan-400" />
+            </button>
+          )}
+
+          {/* Automations Button */}
+          {onOpenTasks && (
+            <button
+              onClick={onOpenTasks}
+              className="p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-colors"
+              title="Automations & Scheduled Tasks"
+            >
+              <CalendarClock className="w-3.5 h-3.5 text-emerald-400" />
+            </button>
+          )}
+
+          {/* Web Search Toggle */}
           <button
             onClick={() => setWebSearchEnabled(!webSearchEnabled)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
@@ -281,19 +464,38 @@ export function ChatArea({
             title="Toggle Live Web Research"
           >
             <Globe className="w-3.5 h-3.5" />
-            <span>Web Search {webSearchEnabled ? 'ON' : 'OFF'}</span>
+            <span className="hidden sm:inline">Web {webSearchEnabled ? 'ON' : 'OFF'}</span>
           </button>
 
+          {/* Voice Mode */}
           <button
             onClick={onOpenVoice}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-gradient-to-r from-purple-600/20 to-pink-600/20 hover:from-purple-600/30 hover:to-pink-600/30 border border-purple-500/40 text-purple-300 transition-all shadow-sm"
             title="Launch Voice Conversation"
           >
             <Mic className="w-3.5 h-3.5 text-pink-400" />
-            <span>Voice</span>
+            <span className="hidden sm:inline">Voice</span>
           </button>
         </div>
       </header>
+
+      {/* Temporary Chat Notice Banner */}
+      {isTemporaryChat && (
+        <div className="bg-amber-500/10 border-b border-amber-500/20 px-6 py-2 flex items-center justify-between text-xs text-amber-300 flex-shrink-0 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span>
+              <strong>Temporary Chat Active:</strong> Messages aren't saved to your history or personal memory and expire in 24 hours.
+            </span>
+          </div>
+          <button
+            onClick={onToggleTemporaryChat}
+            className="text-amber-400 hover:text-amber-200 underline text-[11px] ml-4 flex-shrink-0"
+          >
+            Turn Off
+          </button>
+        </div>
+      )}
 
       {/* Message Stream Area */}
       <div className="flex-1 overflow-y-auto px-4 md:px-12 py-6 space-y-6">
@@ -310,7 +512,7 @@ export function ChatArea({
               Ruhi AI brings together multi-provider intelligence, vector document analysis, live web research, and neural tools.
             </p>
 
-            {/* Prompt Cards */}
+            {/* Starter Prompt Cards */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 w-full">
               {starterPrompts.map((card, idx) => (
                 <button
@@ -335,15 +537,15 @@ export function ChatArea({
           </div>
         )}
 
-        {/* Render Conversation Messages */}
+        {/* Conversation Messages */}
         {messages.map((msg) => (
           <div
             key={msg._id}
-            className={`max-w-3xl mx-auto flex gap-4 ${
+            className={`max-w-3xl mx-auto flex gap-4 group ${
               msg.role === 'user' ? 'justify-end' : 'justify-start'
             }`}
           >
-            {/* Assistant Icon */}
+            {/* Assistant Avatar */}
             {msg.role === 'assistant' && (
               <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-purple-600/20 flex-shrink-0 mt-1">
                 <Sparkles className="w-4 h-4" />
@@ -357,7 +559,7 @@ export function ChatArea({
                   : 'bg-slate-900/90 text-slate-200 border border-slate-800 rounded-tl-none shadow-md'
               }`}
             >
-              {/* Attachments preview if present */}
+              {/* Attachments Preview */}
               {msg.attachments && msg.attachments.length > 0 && (
                 <div className="flex flex-wrap gap-2 mb-3">
                   {msg.attachments.map((att, idx) => (
@@ -376,42 +578,50 @@ export function ChatArea({
                 </div>
               )}
 
-              {/* Tool Calls badge */}
-              {msg.toolCalls && msg.toolCalls.length > 0 && (
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {msg.toolCalls.map((tc, idx) => (
-                    <div
-                      key={idx}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-purple-500/10 text-purple-300 border border-purple-500/20"
-                    >
-                      <Globe className="w-3 h-3 text-cyan-400" />
-                      <span>Used tool: {tc.toolName}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
 
-              {/* Message Content */}
-              {msg.role === 'user' ? (
-                <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
+
+              {/* Message Content or Inline Edit Form */}
+              {editingMsgId === msg._id ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={editingText}
+                    onChange={(e) => setEditingText(e.target.value)}
+                    rows={3}
+                    className="w-full bg-slate-900 border border-purple-500/50 rounded-xl p-3 text-sm text-white focus:outline-none"
+                  />
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      onClick={() => setEditingMsgId(null)}
+                      className="px-3 py-1 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleSaveEdit(msg._id)}
+                      className="px-3 py-1 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-500 text-white"
+                    >
+                      Save & Submit
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <MarkdownRenderer content={msg.content} />
               )}
 
-              {/* Citations block */}
+              {/* Verified Citations List */}
               {msg.citations && msg.citations.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-slate-800">
-                  <div className="text-[11px] font-semibold text-purple-400 uppercase tracking-wider mb-2">
-                    Verified Citations & Sources ({msg.citations.length})
-                  </div>
+                <div className="mt-4 pt-3 border-t border-slate-800/80">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                    Sources & Citations
+                  </span>
                   <div className="flex flex-wrap gap-2">
                     {msg.citations.map((c, idx) => (
                       <button
                         key={idx}
                         onClick={() => setSelectedCitation(c)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-slate-800/80 hover:bg-slate-700 border border-slate-700/60 text-slate-300 transition-colors"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/50 text-slate-300 transition-colors"
                       >
-                        <ExternalLink className="w-3 h-3 text-cyan-400" />
+                        <ExternalLink className="w-3 h-3 text-purple-400 flex-shrink-0" />
                         <span className="truncate max-w-[180px]">{c.title}</span>
                       </button>
                     ))}
@@ -419,32 +629,116 @@ export function ChatArea({
                 </div>
               )}
 
-              {/* Message action bar for assistant */}
+              {/* Assistant Message Action Bar */}
               {msg.role === 'assistant' && (
-                <div className="flex items-center gap-3 mt-3 pt-2 text-slate-500 text-xs">
+                <div className="flex items-center justify-between mt-3 pt-2 text-slate-500 text-xs">
+                  <div className="flex items-center gap-3">
+                    {/* Copy */}
+                    <button
+                      onClick={() => handleCopyMessage(msg._id, msg.content)}
+                      className="hover:text-slate-300 transition-colors"
+                      title="Copy response"
+                    >
+                      {copiedMsgId === msg._id ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    {/* Regenerate */}
+                    <button
+                      onClick={onRegenerate}
+                      className="hover:text-slate-300 transition-colors"
+                      title="Regenerate alternative response"
+                    >
+                      <RotateCw className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Read aloud / Text-to-Speech */}
+                    <button
+                      onClick={() => handleToggleSpeak(msg._id, msg.content)}
+                      className={`transition-colors ${
+                        speakingMsgId === msg._id ? 'text-pink-400 animate-pulse' : 'hover:text-slate-300'
+                      }`}
+                      title={speakingMsgId === msg._id ? 'Stop speaking' : 'Read aloud'}
+                    >
+                      {speakingMsgId === msg._id ? (
+                        <VolumeX className="w-3.5 h-3.5" />
+                      ) : (
+                        <Volume2 className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+
+                    {/* Thumbs up */}
+                    <button
+                      onClick={() => onFeedback?.(msg._id, 'like')}
+                      className={`transition-colors ${
+                        msg.feedback === 'like' ? 'text-emerald-400' : 'hover:text-slate-300'
+                      }`}
+                      title="Helpful"
+                    >
+                      <ThumbsUp className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Thumbs down (opens feedback modal) */}
+                    <button
+                      onClick={() => setFeedbackModalMsgId(msg._id)}
+                      className={`transition-colors ${
+                        msg.feedback === 'dislike' ? 'text-pink-400' : 'hover:text-slate-300'
+                      }`}
+                      title="Provide feedback on what went wrong"
+                    >
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
+                  {/* Alternative Response Versions Switcher (‹ 2 / 3 ›) */}
+                  {msg.versions && msg.versions.length > 1 && (
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-800/80 text-[11px] text-slate-300 font-mono">
+                      <button
+                        onClick={() =>
+                          onSwitchVersion?.(
+                            msg._id,
+                            Math.max(0, (msg.activeVersionIndex || 0) - 1)
+                          )
+                        }
+                        disabled={(msg.activeVersionIndex || 0) === 0}
+                        className="hover:text-white disabled:opacity-30 p-0.5"
+                        title="Previous version"
+                      >
+                        <ChevronLeft className="w-3 h-3" />
+                      </button>
+                      <span>
+                        {(msg.activeVersionIndex || 0) + 1} / {msg.versions.length}
+                      </span>
+                      <button
+                        onClick={() =>
+                          onSwitchVersion?.(
+                            msg._id,
+                            Math.min(msg.versions!.length - 1, (msg.activeVersionIndex || 0) + 1)
+                          )
+                        }
+                        disabled={(msg.activeVersionIndex || 0) >= msg.versions.length - 1}
+                        className="hover:text-white disabled:opacity-30 p-0.5"
+                        title="Next version"
+                      >
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* User Message Action Bar (Edit button) */}
+              {msg.role === 'user' && editingMsgId !== msg._id && (
+                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
-                    onClick={() => handleCopyMessage(msg._id, msg.content)}
-                    className="hover:text-slate-300 transition-colors"
-                    title="Copy response"
+                    onClick={() => handleStartEdit(msg)}
+                    className="p-1 rounded-lg bg-black/40 text-purple-200 hover:text-white transition-colors"
+                    title="Edit message"
                   >
-                    {copiedMsgId === msg._id ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                  <button
-                    onClick={onRegenerate}
-                    className="hover:text-slate-300 transition-colors"
-                    title="Regenerate"
-                  >
-                    <RotateCw className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="hover:text-slate-300 transition-colors" title="Helpful">
-                    <ThumbsUp className="w-3.5 h-3.5" />
-                  </button>
-                  <button className="hover:text-slate-300 transition-colors" title="Unhelpful">
-                    <ThumbsDown className="w-3.5 h-3.5" />
+                    <Pencil className="w-3 h-3" />
                   </button>
                 </div>
               )}
@@ -467,17 +761,42 @@ export function ChatArea({
                   </span>
                 </div>
               )}
+
               {currentStreamingText ? (
                 <>
                   <MarkdownRenderer content={currentStreamingText} />
                   <span className="streaming-cursor" />
                 </>
               ) : (
-                <div className="flex items-center gap-2 text-xs text-purple-400 font-medium">
-                  <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                  <span>Ruhi is reasoning...</span>
+                <div className="flex items-center gap-2.5 text-xs text-purple-300 font-medium py-1">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+                  </span>
+                  <span>{toolStatus || '🧠 Ruhi is reasoning and preparing response...'}</span>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Contextual Follow-up Suggestions Pills */}
+        {messages.length > 0 && !isStreaming && messages[messages.length - 1].role === 'assistant' && (
+          <div className="max-w-3xl mx-auto pt-2 space-y-1.5 animate-fade-in">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider block">
+              Suggested Follow-ups
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {getFollowUpSuggestions(messages[messages.length - 1].content).map((suggestion, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => onSendMessage(suggestion, [], webSearchEnabled, selectedModelId)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-900/70 hover:bg-purple-950/40 border border-slate-800 hover:border-purple-500/40 text-xs text-slate-300 hover:text-purple-200 transition-all flex items-center gap-1.5 group"
+                >
+                  <Sparkles className="w-3 h-3 text-purple-400 group-hover:scale-110 transition-transform" />
+                  <span>{suggestion}</span>
+                </button>
+              ))}
             </div>
           </div>
         )}
@@ -485,154 +804,163 @@ export function ChatArea({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Citation Details Modal */}
-      {selectedCitation && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="relative w-full max-w-lg p-6 rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl">
-            <button
-              onClick={() => setSelectedCitation(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <h4 className="text-base font-bold text-white mb-2">{selectedCitation.title}</h4>
-            {selectedCitation.url && (
-              <a
-                href={selectedCitation.url}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs text-purple-400 hover:underline flex items-center gap-1 mb-4"
-              >
-                <span>{selectedCitation.url}</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            )}
-            <div className="p-4 rounded-xl bg-slate-950 text-xs text-slate-300 leading-relaxed max-h-60 overflow-y-auto">
-              {selectedCitation.snippet}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Composer Area */}
-      <div className="p-4 md:px-12 bg-gradient-to-t from-[#090d16] via-[#090d16]/90 to-transparent">
-        <div className="max-w-3xl mx-auto relative rounded-2xl border border-slate-700/80 bg-slate-900/90 shadow-2xl backdrop-blur-md p-3">
-          {/* Attachments Chips Bar */}
+      {/* Composer Input Area */}
+      <div className="p-4 md:px-12 bg-gradient-to-t from-[#070a13] via-[#070a13] to-transparent z-10 flex-shrink-0">
+        <div className="max-w-3xl mx-auto relative">
+          {/* Attachment Chips */}
           {attachments.length > 0 && (
-            <div className="flex flex-wrap gap-2 pb-2 mb-2 border-b border-slate-800">
+            <div className="flex flex-wrap gap-2 mb-2 p-2 bg-slate-900/60 border border-slate-800 rounded-2xl">
               {attachments.map((att, idx) => (
                 <div
                   key={idx}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-slate-800 text-xs text-slate-200 border border-slate-700"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700 text-xs"
                 >
                   {att.type === 'image' ? (
                     <ImageIcon className="w-3.5 h-3.5 text-pink-400" />
                   ) : (
                     <FileText className="w-3.5 h-3.5 text-cyan-400" />
                   )}
-                  <span className="truncate max-w-[160px]">{att.name}</span>
+                  <span className="truncate max-w-[120px]">{att.name}</span>
                   <button
                     onClick={() => removeAttachment(idx)}
-                    className="p-0.5 hover:text-rose-400 transition-colors ml-1"
+                    className="hover:text-red-400 transition-colors"
                   >
-                    <X className="w-3 h-3" />
+                    <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Text Area */}
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask Ruhi anything, upload documents, calculate, or code..."
-            className="w-full bg-transparent resize-none text-sm text-white placeholder-slate-500 focus:outline-none max-h-44 leading-relaxed"
-          />
+          {/* Main Input Box */}
+          <div className="relative rounded-3xl bg-slate-900/85 border border-slate-800 focus-within:border-purple-500/60 shadow-xl transition-all">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask Ruhi anything, upload documents, calculate, or code..."
+              rows={1}
+              className="w-full bg-transparent px-5 py-4 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none resize-none max-h-44"
+            />
 
-          {/* Bottom Bar: Attachments, Web Search, Send/Stop */}
-          <div className="flex items-center justify-between pt-2 mt-1 border-t border-slate-800/60">
-            <div className="flex items-center gap-1">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                onChange={handleFileUpload}
-                className="hidden"
-                accept=".pdf,.docx,.txt,.md,.csv,.json,image/*"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                title="Attach files or images"
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
+            {/* Bottom Actions Row */}
+            <div className="flex items-center justify-between px-4 pb-3">
+              <div className="flex items-center gap-1.5">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.txt"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
+                  title="Upload images or documents (RAG)"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-                className={`p-2 rounded-xl transition-colors ${
-                  webSearchEnabled
-                    ? 'text-cyan-400 bg-cyan-500/10'
-                    : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                }`}
-                title="Toggle Web Search"
-              >
-                <Globe className="w-4 h-4" />
-              </button>
+                <button
+                  onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+                  className={`p-2 rounded-xl transition-colors ${
+                    webSearchEnabled
+                      ? 'text-cyan-400 bg-cyan-500/10'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                  title="Toggle Web Search"
+                >
+                  <Globe className="w-4 h-4" />
+                </button>
 
+                <button
+                  onClick={onOpenVoice}
+                  className="p-2 rounded-xl text-slate-400 hover:text-purple-300 hover:bg-slate-800 transition-colors"
+                  title="Voice Conversation"
+                >
+                  <Mic className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {isStreaming ? (
+                  <button
+                    onClick={onStopStreaming}
+                    className="p-2.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-all shadow-md"
+                    title="Stop generation"
+                  >
+                    <Square className="w-4 h-4 fill-current text-purple-400" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSubmit}
+                    disabled={!input.trim() && attachments.length === 0}
+                    className="p-2.5 rounded-2xl bg-gradient-to-tr from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-40 text-white transition-all shadow-md shadow-purple-600/20"
+                    title="Send message"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center mt-2">
+            <span className="text-[11px] text-slate-500">
+              Ruhi AI can make mistakes. Verify important facts, code, and citations.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Citation Details Sheet */}
+      {selectedCitation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
+          <div className="relative w-full max-w-lg bg-[#0e1322] border border-slate-800 rounded-3xl p-6 shadow-2xl">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+              <div className="flex items-center gap-2">
+                <Globe className="w-4 h-4 text-cyan-400" />
+                <h3 className="text-sm font-bold text-white">Source Verification</h3>
+              </div>
               <button
-                type="button"
-                onClick={onOpenVoice}
-                className="p-2 rounded-xl text-slate-400 hover:text-purple-300 hover:bg-slate-800 transition-colors"
-                title="Voice input"
+                onClick={() => setSelectedCitation(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-white transition-colors"
               >
-                <Mic className="w-4 h-4" />
+                <X className="w-4 h-4" />
               </button>
             </div>
-
-            <div className="flex items-center gap-2">
-              {isStreaming ? (
-                <button
-                  type="button"
-                  onClick={onStopStreaming}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 text-xs font-semibold transition-all"
+            <div className="py-4 space-y-3">
+              <h4 className="text-base font-semibold text-white">{selectedCitation.title}</h4>
+              <p className="text-xs text-slate-300 bg-slate-900 p-3 rounded-xl leading-relaxed">
+                {selectedCitation.snippet}
+              </p>
+              {selectedCitation.url && (
+                <a
+                  href={selectedCitation.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-purple-400 hover:underline pt-2"
                 >
-                  <Square className="w-3.5 h-3.5 fill-rose-300" />
-                  <span>Stop</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={!input.trim() && attachments.length === 0}
-                  className={`p-2.5 rounded-xl transition-all shadow-md ${
-                    input.trim() || attachments.length > 0
-                      ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-purple-600/30'
-                      : 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                  }`}
-                  title="Send message"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
+                  <span>Visit verified source website</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
               )}
             </div>
           </div>
         </div>
+      )}
 
-        <div className="text-center mt-2">
-          <span className="text-[11px] text-slate-400">
-            Ruhi AI can make mistakes. Verify important facts and citations.
-          </span>
-        </div>
-      </div>
+      {/* Message Feedback Modal */}
+      <FeedbackModal
+        isOpen={Boolean(feedbackModalMsgId)}
+        onClose={() => setFeedbackModalMsgId(null)}
+        messageId={feedbackModalMsgId}
+        onSubmitFeedback={async (msgId, reason, comment) => {
+          await onFeedback?.(msgId, 'dislike', reason, comment);
+        }}
+      />
     </div>
   );
 }
-
-export default ChatArea;

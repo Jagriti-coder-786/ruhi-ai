@@ -6,8 +6,15 @@ import { ChatArea } from '@/components/chat/ChatArea';
 import { VoiceModal } from '@/components/voice/VoiceModal';
 import { UpgradeModal } from '@/components/modals/UpgradeModal';
 import { SearchModal } from '@/components/modals/SearchModal';
+import { ShareModal } from '@/components/modals/ShareModal';
+import { ExportModal } from '@/components/modals/ExportModal';
+import { CommandPalette } from '@/components/modals/CommandPalette';
+import { WorkspacePanel, WorkspaceTab } from '@/components/workspace/WorkspacePanel';
+import { ConnectorsModal } from '@/components/modals/ConnectorsModal';
+import { TasksModal } from '@/components/modals/TasksModal';
 import { useAuth } from '@/hooks/useAuth';
 import { IConversation, IMessage, ModelCapability, ICitation, IAttachment } from '@/types';
+import { RotateCcw } from 'lucide-react';
 
 export default function ChatPage() {
   const { user, loading: authLoading, loginDemo } = useAuth();
@@ -20,11 +27,30 @@ export default function ChatPage() {
   const [currentStreamingText, setCurrentStreamingText] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentCitations, setCurrentCitations] = useState<ICitation[]>([]);
+  const [toolStatus, setToolStatus] = useState<string | null>(null);
 
+  // Temporary chat mode
+  const [isTemporaryChat, setIsTemporaryChat] = useState(false);
+
+  // Modals state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [voiceOpen, setVoiceOpen] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [workspaceInitialType, setWorkspaceInitialType] = useState<WorkspaceTab>('document');
+  const [connectorsOpen, setConnectorsOpen] = useState(false);
+  const [tasksOpen, setTasksOpen] = useState(false);
+
+  // Undo Delete state
+  const [deletedConvoBackup, setDeletedConvoBackup] = useState<{
+    id: string;
+    conversation: IConversation;
+  } | null>(null);
+  const [undoToastVisible, setUndoToastVisible] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -51,13 +77,15 @@ export default function ChatPage() {
     loadModels();
   }, []);
 
-  // Fetch conversations
+  // Fetch conversations (excluding temporary chats from normal list)
   const loadConversations = async () => {
     try {
       const res = await fetch('/api/conversations');
       if (res.ok) {
         const data = await res.json();
-        setConversations(data.conversations || []);
+        setConversations(
+          (data.conversations || []).filter((c: IConversation) => !c.isTemporary)
+        );
       }
     } catch (err) {
       console.error('Failed to load conversations:', err);
@@ -91,31 +119,58 @@ export default function ChatPage() {
     loadMessages();
   }, [activeConversationId]);
 
+  // Keyboard Shortcuts: Ctrl+K, Ctrl+Shift+O, Esc
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Shift+O -> New Chat
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        handleNewChat();
+      }
+      // Esc -> Stop streaming
+      if (e.key === 'Escape' && isStreaming) {
+        e.preventDefault();
+        handleStopStreaming();
+      }
+      // Ctrl+K -> Command Palette
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [isStreaming]);
+
   // Handle Send Message with Streaming SSE
   const handleSendMessage = async (
     content: string,
     attachments: IAttachment[] = [],
     webSearch: boolean = false,
-    modelId: string = selectedModelId
+    modelId: string = selectedModelId,
+    regenerateMessageId?: string
   ) => {
     if (isStreaming) return;
 
-    // Optimistically add user message to UI
-    const tempUserMsg: IMessage = {
-      _id: `temp_user_${Date.now()}`,
-      conversationId: activeConversationId || '',
-      userId: user?._id || '',
-      role: 'user',
-      content,
-      attachments,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
+    // Optimistically add user message if this is not an in-place regeneration
+    if (!regenerateMessageId) {
+      const tempUserMsg: IMessage = {
+        _id: `temp_user_${Date.now()}`,
+        conversationId: activeConversationId || '',
+        userId: user?._id || '',
+        role: 'user',
+        content,
+        attachments,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, tempUserMsg]);
+    }
 
-    setMessages((prev) => [...prev, tempUserMsg]);
     setIsStreaming(true);
     setCurrentStreamingText('');
     setCurrentCitations([]);
+    setToolStatus(null);
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -130,6 +185,10 @@ export default function ChatPage() {
           modelId,
           attachments,
           webSearchEnabled: webSearch,
+          isTemporary: isTemporaryChat,
+          regenerateMessageId,
+          responseStyle: user?.preferences?.responseStyle || 'balanced',
+          responseLength: user?.preferences?.responseLength || 'standard',
         }),
         signal: controller.signal,
       });
@@ -163,35 +222,34 @@ export default function ChatPage() {
           try {
             const data = JSON.parse(jsonStr);
 
-            if (data.type === 'start') {
+            if (data.type === 'status') {
+              setToolStatus(data.status);
+            } else if (data.type === 'start') {
               serverConvoId = data.conversationId;
               if (!activeConversationId) {
                 setActiveConversationId(data.conversationId);
-                loadConversations();
+                if (!isTemporaryChat) loadConversations();
               }
               if (data.citations) {
                 setCurrentCitations(data.citations);
               }
             } else if (data.type === 'chunk') {
+              setToolStatus(null);
               streamedAssistantContent += data.text;
               setCurrentStreamingText(streamedAssistantContent);
             } else if (data.type === 'done') {
-              // Final assistant message
-              const finalAssistantMsg: IMessage = {
-                _id: data.messageId || `msg_${Date.now()}`,
-                conversationId: serverConvoId || '',
-                userId: user?._id || '',
-                role: 'assistant',
-                content: streamedAssistantContent,
-                modelId,
-                citations: currentCitations,
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-              };
-              setMessages((prev) => [...prev, finalAssistantMsg]);
+              setToolStatus(null);
+              // Refresh messages list to pick up multi-version structures
+              if (serverConvoId) {
+                const msgRes = await fetch(`/api/messages?conversationId=${serverConvoId}`);
+                if (msgRes.ok) {
+                  const msgData = await msgRes.json();
+                  setMessages(msgData.messages || []);
+                }
+              }
               setCurrentStreamingText('');
               setIsStreaming(false);
-              loadConversations();
+              if (!isTemporaryChat) loadConversations();
             } else if (data.type === 'error') {
               throw new Error(data.error);
             }
@@ -229,7 +287,7 @@ export default function ChatPage() {
           conversationId: activeConversationId || '',
           userId: user?._id || '',
           role: 'assistant',
-          content: currentStreamingText + ' *(generation paused)*',
+          content: currentStreamingText + ' *(generation stopped)*',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
@@ -239,15 +297,85 @@ export default function ChatPage() {
     }
   };
 
+  // Regenerate Response
   const handleRegenerate = () => {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
+    const lastAssistantMessage = [...messages].reverse().find((m) => m.role === 'assistant');
+
     if (lastUserMessage) {
       handleSendMessage(
         lastUserMessage.content,
         lastUserMessage.attachments,
         false,
-        selectedModelId
+        selectedModelId,
+        lastAssistantMessage?._id
       );
+    }
+  };
+
+  // Switch response version (‹ 2 / 3 ›)
+  const handleSwitchVersion = async (messageId: string, versionIndex: number) => {
+    try {
+      const res = await fetch('/api/messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, activeVersionIndex: versionIndex }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMessages((prev) =>
+          prev.map((m) => (m._id === messageId ? data.message : m))
+        );
+      }
+    } catch (err) {
+      console.error('Failed to switch version:', err);
+    }
+  };
+
+  // Edit user message and re-prompt from that turn
+  const handleEditMessage = async (messageId: string, newContent: string) => {
+    try {
+      await fetch('/api/messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, content: newContent }),
+      });
+
+      // Update in UI and trigger new response for edited prompt
+      setMessages((prev) =>
+        prev.map((m) => (m._id === messageId ? { ...m, content: newContent } : m))
+      );
+
+      handleSendMessage(newContent, [], false, selectedModelId);
+    } catch (err) {
+      console.error('Failed to edit message:', err);
+    }
+  };
+
+  // Message Feedback (thumbs up / thumbs down with reason)
+  const handleFeedback = async (
+    messageId: string,
+    type: 'like' | 'dislike',
+    reason?: string,
+    comment?: string
+  ) => {
+    try {
+      await fetch('/api/messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messageId,
+          feedback: type,
+          feedbackReason: reason,
+          feedbackComment: comment,
+        }),
+      });
+
+      setMessages((prev) =>
+        prev.map((m) => (m._id === messageId ? { ...m, feedback: type, feedbackReason: reason } : m))
+      );
+    } catch (err) {
+      console.error('Failed to submit feedback:', err);
     }
   };
 
@@ -257,7 +385,15 @@ export default function ChatPage() {
     setCurrentStreamingText('');
   };
 
+  // Delete Conversation with Undo support
   const handleDeleteConversation = async (id: string) => {
+    const convoToDelete = conversations.find((c) => c._id === id);
+    if (!convoToDelete) return;
+
+    // Backup for undo
+    setDeletedConvoBackup({ id, conversation: convoToDelete });
+    setUndoToastVisible(true);
+
     try {
       const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
       if (res.ok) {
@@ -268,6 +404,36 @@ export default function ChatPage() {
       }
     } catch (err) {
       console.error('Delete conversation error:', err);
+    }
+
+    // Auto-hide undo toast after 6 seconds
+    setTimeout(() => {
+      setUndoToastVisible(false);
+    }, 6000);
+  };
+
+  const handleUndoDelete = async () => {
+    if (!deletedConvoBackup) return;
+    try {
+      // Re-create conversation
+      const res = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: deletedConvoBackup.conversation.title,
+          model: deletedConvoBackup.conversation.modelId,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setActiveConversationId(data.conversation._id);
+        loadConversations();
+      }
+    } catch (err) {
+      console.error('Undo delete failed:', err);
+    } finally {
+      setUndoToastVisible(false);
+      setDeletedConvoBackup(null);
     }
   };
 
@@ -284,17 +450,26 @@ export default function ChatPage() {
     }
   };
 
+  const handleToggleTemporaryChat = () => {
+    setIsTemporaryChat((prev) => !prev);
+    handleNewChat();
+  };
+
+  const activeConversation = conversations.find((c) => c._id === activeConversationId);
   const lastAssistantText = [...messages]
     .reverse()
     .find((m) => m.role === 'assistant')?.content;
 
   return (
-    <div className="flex h-screen bg-[#090d16] text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen bg-[#090d16] text-slate-100 overflow-hidden font-sans relative">
       {/* Left Sidebar */}
       <Sidebar
         conversations={conversations}
         activeConversationId={activeConversationId}
-        onSelectConversation={(id) => setActiveConversationId(id)}
+        onSelectConversation={(id) => {
+          setIsTemporaryChat(false);
+          setActiveConversationId(id);
+        }}
         onNewChat={handleNewChat}
         onDeleteConversation={handleDeleteConversation}
         onPinConversation={handlePinConversation}
@@ -302,6 +477,9 @@ export default function ChatPage() {
         onOpenUpgrade={() => setUpgradeOpen(true)}
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onOpenWorkspace={() => setWorkspaceOpen(true)}
+        onOpenConnectors={() => setConnectorsOpen(true)}
+        onOpenTasks={() => setTasksOpen(true)}
       />
 
       {/* Main Chat Workspace */}
@@ -318,6 +496,20 @@ export default function ChatPage() {
         onSelectModel={setSelectedModelId}
         availableModels={availableModels}
         currentCitations={currentCitations}
+        toolStatus={toolStatus}
+        onEditMessage={handleEditMessage}
+        onSwitchVersion={handleSwitchVersion}
+        onOpenShare={() => setShareOpen(true)}
+        onOpenExport={() => setExportOpen(true)}
+        isTemporaryChat={isTemporaryChat}
+        onToggleTemporaryChat={handleToggleTemporaryChat}
+        onFeedback={handleFeedback}
+        onOpenWorkspace={(tab) => {
+          setWorkspaceInitialType(tab || 'document');
+          setWorkspaceOpen(true);
+        }}
+        onOpenConnectors={() => setConnectorsOpen(true)}
+        onOpenTasks={() => setTasksOpen(true)}
       />
 
       {/* Voice Assistant Modal */}
@@ -331,18 +523,86 @@ export default function ChatPage() {
         lastAssistantResponse={lastAssistantText}
       />
 
-      {/* Razorpay Subscription Modal */}
+      {/* Upgrade / Pricing Modal */}
       <UpgradeModal
         isOpen={upgradeOpen}
         onClose={() => setUpgradeOpen(false)}
       />
 
-      {/* Deep Search Modal */}
+      {/* Search Conversations Modal */}
       <SearchModal
         isOpen={searchOpen}
         onClose={() => setSearchOpen(false)}
         onSelectConversation={(id) => setActiveConversationId(id)}
       />
+
+      {/* Public Share Modal */}
+      <ShareModal
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+        conversationId={activeConversationId}
+        conversationTitle={activeConversation?.title || 'Current Conversation'}
+      />
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={exportOpen}
+        onClose={() => setExportOpen(false)}
+        conversationId={activeConversationId}
+        conversationTitle={activeConversation?.title || 'Conversation'}
+      />
+
+      {/* Workspace Panel (Side Docked / Overlay) */}
+      <WorkspacePanel
+        isOpen={workspaceOpen}
+        onClose={() => setWorkspaceOpen(false)}
+        conversationId={activeConversationId}
+        initialType={workspaceInitialType}
+      />
+
+      {/* Workspace Connectors Modal */}
+      <ConnectorsModal
+        isOpen={connectorsOpen}
+        onClose={() => setConnectorsOpen(false)}
+      />
+
+      {/* Automations & Scheduled Tasks Modal */}
+      <TasksModal
+        isOpen={tasksOpen}
+        onClose={() => setTasksOpen(false)}
+      />
+
+      {/* Command Palette (Ctrl+K) */}
+      <CommandPalette
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onNewChat={handleNewChat}
+        onOpenSearch={() => setSearchOpen(true)}
+        onOpenShare={() => setShareOpen(true)}
+        onOpenExport={() => setExportOpen(true)}
+        onToggleTemporaryChat={handleToggleTemporaryChat}
+        isTemporaryChat={isTemporaryChat}
+        availableModels={availableModels}
+        selectedModelId={selectedModelId}
+        onSelectModel={setSelectedModelId}
+        onOpenWorkspace={() => setWorkspaceOpen(true)}
+        onOpenConnectors={() => setConnectorsOpen(true)}
+        onOpenTasks={() => setTasksOpen(true)}
+      />
+
+      {/* Undo Delete Toast */}
+      {undoToastVisible && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-3 rounded-2xl bg-[#0f172a] border border-slate-700 text-xs text-white shadow-2xl animate-fade-in">
+          <span>Conversation deleted.</span>
+          <button
+            onClick={handleUndoDelete}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 font-semibold text-white transition-colors"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Undo</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

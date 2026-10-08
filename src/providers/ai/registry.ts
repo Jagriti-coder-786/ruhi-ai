@@ -3,6 +3,7 @@ import { GeminiProvider } from './gemini';
 import { OpenAIProvider } from './openai';
 import { AnthropicProvider } from './anthropic';
 import { GrokProvider } from './grok';
+import { GroqProvider } from './groq';
 import { OpenRouterProvider } from './openrouter';
 import { ModelCapability, SubscriptionTier } from '@/types';
 
@@ -14,6 +15,7 @@ class ModelRegistry {
     this.registerProvider(new OpenAIProvider());
     this.registerProvider(new AnthropicProvider());
     this.registerProvider(new GrokProvider());
+    this.registerProvider(new GroqProvider());
     this.registerProvider(new OpenRouterProvider());
   }
 
