@@ -11,3 +11,4 @@ export { AuditLog } from './AuditLog';
 export { Artifact } from './Artifact';
 export { Connector } from './Connector';
 export { ScheduledTask } from './ScheduledTask';
+export { Organization } from './Organization';

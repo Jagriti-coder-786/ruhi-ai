@@ -21,12 +21,14 @@ export class AIRouter {
   ): RouteResolution {
     let targetModelId = requestedModelId || 'ruhi-balanced';
     let notice: string | undefined;
+    let isFallback = false;
 
     // Check if requested model exists
     let model = modelRegistry.getModelById(targetModelId);
     if (!model) {
       targetModelId = 'ruhi-balanced';
       model = modelRegistry.getModelById(targetModelId)!;
+      isFallback = true;
     }
 
     // 1. Multimodal Vision Override if images are provided
@@ -34,18 +36,19 @@ export class AIRouter {
       targetModelId = 'ruhi-vision';
       model = modelRegistry.getModelById('ruhi-vision') || model;
       notice = 'Switched to Ruhi Multimodal Vision to process your uploaded images.';
+      isFallback = true;
     }
 
     // 2. Subscription Tier Authorization (Server-Side Protection)
     if (model.isPremiumOnly && userTier === 'free') {
       targetModelId = 'ruhi-balanced';
       model = modelRegistry.getModelById('ruhi-balanced')!;
-      notice = `The model "${requestedModelId}" is reserved for Pro & Team members. Routed to Ruhi Balanced.`;
+      notice = `The model "${requestedModelId}" requires a Pro or Team plan (reserved for Pro & Team members). Routed to Ruhi Balanced.`;
+      isFallback = true;
     }
 
     // 3. Resolve Provider
     let provider = modelRegistry.getProviderForModel(targetModelId);
-    let isFallback = false;
 
     // If provider is not configured or not available, fallback to Gemini
     if (!provider || !provider.isConfigured()) {

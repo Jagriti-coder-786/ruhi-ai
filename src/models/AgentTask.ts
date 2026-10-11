@@ -2,6 +2,7 @@ import mongoose, { Schema, Model } from 'mongoose';
 
 export interface IAgentTask {
   userId: mongoose.Types.ObjectId;
+  organizationId?: mongoose.Types.ObjectId;
   projectId?: mongoose.Types.ObjectId;
   title: string;
   status: 'queued' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
@@ -36,6 +37,7 @@ export interface IAgentTask {
 const AgentTaskSchema = new Schema<IAgentTask>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', default: null, index: true },
     projectId: { type: Schema.Types.ObjectId, ref: 'Project', default: null, index: true },
     title: { type: String, required: true },
     status: {

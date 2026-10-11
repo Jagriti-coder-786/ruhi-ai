@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 
 export interface IProjectDocument extends Document {
   userId: mongoose.Types.ObjectId;
+  organizationId?: mongoose.Types.ObjectId | null;
   name: string;
   description?: string;
   customInstructions?: string;
@@ -13,6 +14,7 @@ export interface IProjectDocument extends Document {
 const ProjectSchema = new Schema<IProjectDocument>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', default: null, index: true },
     name: { type: String, required: true, trim: true },
     description: { type: String, default: '', trim: true },
     customInstructions: { type: String, default: '', trim: true },
@@ -22,6 +24,7 @@ const ProjectSchema = new Schema<IProjectDocument>(
 );
 
 ProjectSchema.index({ userId: 1, createdAt: -1 });
+ProjectSchema.index({ organizationId: 1, createdAt: -1 });
 
 export const Project: Model<IProjectDocument> =
   mongoose.models.Project || mongoose.model<IProjectDocument>('Project', ProjectSchema);

@@ -77,19 +77,70 @@ export function verifyPaymentSignature(
   paymentId: string,
   signature: string
 ): boolean {
-  if (orderId.startsWith('order_mock_')) {
+  const secret = process.env.RAZORPAY_KEY_SECRET || env.RAZORPAY_KEY_SECRET;
+
+  // In production or whenever real Razorpay secret is set, NEVER accept mock orders
+  if (secret) {
+    if (!signature || !orderId || !paymentId || orderId.startsWith('order_mock_')) {
+      return false;
+    }
+
+    try {
+      const generatedSignature = crypto
+        .createHmac('sha256', secret)
+        .update(`${orderId}|${paymentId}`)
+        .digest('hex');
+
+      const genBuf = Buffer.from(generatedSignature, 'utf8');
+      const sigBuf = Buffer.from(signature, 'utf8');
+      if (genBuf.length !== sigBuf.length) {
+        return false;
+      }
+      return crypto.timingSafeEqual(genBuf, sigBuf);
+    } catch {
+      return false;
+    }
+  }
+
+  // Graceful Sandbox Simulation Mode ONLY when no secret is configured and outside strict production
+  if (process.env.NODE_ENV !== 'production' && orderId.startsWith('order_mock_')) {
     return true;
   }
 
-  const secret = process.env.RAZORPAY_KEY_SECRET || env.RAZORPAY_KEY_SECRET;
-  if (!secret) return false;
+  return false;
+}
 
-  const generatedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(`${orderId}|${paymentId}`)
-    .digest('hex');
+export function verifyWebhookSignature(
+  rawBody: string,
+  signature: string,
+  customSecret?: string
+): boolean {
+  const secret =
+    customSecret ||
+    process.env.RAZORPAY_WEBHOOK_SECRET ||
+    env.RAZORPAY_WEBHOOK_SECRET ||
+    process.env.RAZORPAY_KEY_SECRET ||
+    env.RAZORPAY_KEY_SECRET;
 
-  return generatedSignature === signature;
+  if (!secret || !signature || !rawBody) {
+    return false;
+  }
+
+  try {
+    const generated = crypto
+      .createHmac('sha256', secret)
+      .update(rawBody)
+      .digest('hex');
+
+    const genBuf = Buffer.from(generated, 'utf8');
+    const sigBuf = Buffer.from(signature, 'utf8');
+    if (genBuf.length !== sigBuf.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(genBuf, sigBuf);
+  } catch {
+    return false;
+  }
 }
 
 export async function activateSubscription(params: {
@@ -100,6 +151,12 @@ export async function activateSubscription(params: {
 }) {
   await connectDB();
   const { userId, plan, orderId, paymentId } = params;
+
+  // Idempotency: check if payment ID was already applied
+  const existingSub = await Subscription.findOne({ razorpayPaymentId: paymentId });
+  if (existingSub && existingSub.status === 'active') {
+    return existingSub;
+  }
 
   await User.findByIdAndUpdate(userId, { $set: { plan } });
 

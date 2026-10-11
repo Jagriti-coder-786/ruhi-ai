@@ -2,8 +2,11 @@ import { NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 
-export async function GET() {
+import { requireAdmin } from '@/lib/auth/session';
+
+export async function GET(req: Request) {
   try {
+    await requireAdmin(req);
     await connectDB();
     const db = mongoose.connection.db;
     if (!db) throw new Error('No DB connection');

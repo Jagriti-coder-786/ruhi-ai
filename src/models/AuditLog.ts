@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 
 export interface IAuditLogDocument extends Document {
   userId?: mongoose.Types.ObjectId;
+  organizationId?: mongoose.Types.ObjectId;
   action: string;
   resourceType: string;
   resourceId?: string;
@@ -14,6 +15,7 @@ export interface IAuditLogDocument extends Document {
 const AuditLogSchema = new Schema<IAuditLogDocument>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+    organizationId: { type: Schema.Types.ObjectId, ref: 'Organization', index: true },
     action: { type: String, required: true, index: true },
     resourceType: { type: String, required: true },
     resourceId: { type: String },

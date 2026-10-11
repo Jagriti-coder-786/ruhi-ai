@@ -64,7 +64,8 @@ export async function POST(req: Request) {
     await connectDB();
 
     const body = await req.json().catch(() => ({}));
-    const { title = 'New Conversation', model = 'ruhi-balanced', projectId } = body;
+    const { title = 'New Conversation', model = 'ruhi-balanced', projectId, isTemporary } = body;
+    const expiresAt = isTemporary ? new Date(Date.now() + 24 * 60 * 60 * 1000) : undefined;
 
     const conversation = await Conversation.create({
       userId: new mongoose.Types.ObjectId(user.userId),
@@ -73,6 +74,8 @@ export async function POST(req: Request) {
       projectId: projectId ? new mongoose.Types.ObjectId(projectId) : undefined,
       pinned: false,
       archived: false,
+      isTemporary: Boolean(isTemporary),
+      expiresAt,
     });
 
     const cObj = conversation.toObject ? conversation.toObject() : conversation;
