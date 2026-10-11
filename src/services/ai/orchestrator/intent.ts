@@ -95,6 +95,8 @@ export interface IntentAnalysis {
   confidence: number;
   actionVerbsDetected: string[];
   contextTopic?: string;
+  isCorrection?: boolean;
+  correctionDetail?: string;
   requiresLiveSearch: boolean;
   requiresCalculator: boolean;
   requiresRag: boolean;
@@ -163,7 +165,17 @@ const DOCUMENT_PATTERNS = [
   /\baccording\s+to\s+the\s+(?:document|pdf|file)\b/i,
 ];
 
-// 5. Action Verbs
+// 5. Continuation & Correction patterns
+const CORRECTION_PATTERNS = [
+  /^(?:no,?\s+)?(?:that'?s\s+not\s+what\s+i\s+meant|not\s+what\s+i\s+asked|wait,?\s+i\s+meant|actually,?\s+(?:i\s+meant|i\s+wanted)|no,?\s+use\b|nahi,?\s+mera\s+matlab)/i,
+];
+
+const CONTINUATION_PATTERNS = [
+  /^(?:continue|proceed|go\s+on|next\s+step|keep\s+going|continue\s+from\s+where\s+we\s+stopped)\b/i,
+  /\b(?:make\s+it\s+(?:faster|better|simpler|more\s+secure)|optimize\s+this|now\s+add\b|what\s+about\s+edge\s+cases)\b/i,
+];
+
+// 6. Action Verbs
 const ACTION_VERBS_REGEX = /\b(build|create|make|generate|write|develop|code|fix|debug|modify|edit|upgrade|improve|design|implement|add|remove|convert|analyze|analyse|prepare|export|download|deploy|publish|connect|send|schedule|automate)\b/gi;
 
 /**
@@ -204,7 +216,7 @@ function extractTopicFromHistory(
   return undefined;
 }
 
-export function detectIntent(
+function _detectIntentCore(
   content: string,
   optionsOrHasAttachments?: boolean | IntentContextOptions
 ): IntentAnalysis {
@@ -227,6 +239,7 @@ export function detectIntent(
 
   const actionVerbs = extractActionVerbs(text);
   const contextTopic = extractTopicFromHistory(conversationHistory, conversationSummary);
+  const isCorrection = CORRECTION_PATTERNS.some((p) => p.test(text));
 
   // 1. Check Memory Commands
   for (const pattern of QUERY_MEMORY_PATTERNS) {
@@ -357,7 +370,7 @@ export function detectIntent(
   }
 
   // 4. Greetings
-  if (/^(hi|hello|hey|namaste|salaam|good\s+(?:morning|afternoon|evening))\s*(?:ruhi)?(?:!|\.)?$/i.test(text)) {
+  if (/^(hi|hello|hey|namaste|salaam|good\s+(?:morning|afternoon|evening))\b/i.test(text) && !actionVerbs.length && !/(?:code|prompt|calculate|build|create|fix)/i.test(text)) {
     return {
       primaryIntent: 'greeting',
       detailedIntent: 'ANSWER',
@@ -370,6 +383,28 @@ export function detectIntent(
       requiresRag: false,
       hasFilesOrContext: false,
       needsClarification: false,
+    };
+  }
+
+  // 4b. Continuation of Ongoing Task & Incremental Improvements
+  const isContinuation = CONTINUATION_PATTERNS.some((p) => p.test(text));
+  if (isContinuation && (contextTopic || conversationHistory.length > 0)) {
+    const isCodeHistory = conversationHistory.some((m) => /```|function|const|import|class|component/i.test(m.content));
+    return {
+      primaryIntent: isCodeHistory ? 'coding' : 'general_chat',
+      detailedIntent: 'CONTINUE_PREVIOUS_TASK',
+      executionMode: isCodeHistory ? 'EXECUTION_MODE' : 'ANSWER_MODE',
+      expectedDeliverable: isCodeHistory ? 'code' : 'answer',
+      confidence: 0.94,
+      actionVerbsDetected: actionVerbs,
+      contextTopic: contextTopic || 'the ongoing discussion',
+      requiresLiveSearch: false,
+      requiresCalculator: false,
+      requiresRag: false,
+      hasFilesOrContext: true,
+      needsClarification: false,
+      isCorrection,
+      correctionDetail: isCorrection ? text : undefined,
     };
   }
 
@@ -734,4 +769,18 @@ export function detectIntent(
     hasFilesOrContext: false,
     needsClarification: false,
   };
+}
+
+export function detectIntent(
+  content: string,
+  optionsOrHasAttachments?: boolean | IntentContextOptions
+): IntentAnalysis {
+  const result = _detectIntentCore(content, optionsOrHasAttachments);
+  const text = content.trim();
+  const isCorrection = CORRECTION_PATTERNS.some((p) => p.test(text));
+  if (isCorrection) {
+    result.isCorrection = true;
+    result.correctionDetail = text;
+  }
+  return result;
 }

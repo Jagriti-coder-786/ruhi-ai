@@ -82,13 +82,21 @@ export async function POST(req: Request) {
             }
           }
 
-          // Finalize message storage, quota, and validation
-          const finalized = await orchestration.finalizeMessage(accumulatedText);
+          // Finalize message storage, quota, and validation (fault-tolerant)
+          let finalizedMessageId = 'temp-' + Date.now();
+          let finalizedTokens = 0;
+          try {
+            const finalized = await orchestration.finalizeMessage(accumulatedText);
+            finalizedMessageId = finalized.messageId;
+            finalizedTokens = finalized.totalTokens;
+          } catch (persistErr: any) {
+            console.warn('Non-fatal message finalization error (response preserved):', persistErr.message);
+          }
 
           sendEvent({
             type: 'done',
-            messageId: finalized.messageId,
-            totalTokens: finalized.totalTokens,
+            messageId: finalizedMessageId,
+            totalTokens: finalizedTokens,
           });
         } catch (streamErr: any) {
           console.error('Chat orchestration error:', streamErr);

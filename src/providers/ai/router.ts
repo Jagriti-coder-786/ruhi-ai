@@ -1,6 +1,7 @@
 import modelRegistry from './registry';
 import { AIProvider, GenerateTextOptions, StreamChunk, TextGenerationResult } from './interface';
 import { SubscriptionTier, ModelCapability } from '@/types';
+import { safeDiagnostics } from '@/services/ai/orchestrator/observability';
 
 export interface RouteResolution {
   provider: AIProvider;
@@ -58,6 +59,15 @@ export class AIRouter {
       }
     }
 
+    safeDiagnostics.record('model_routed', {
+      requestedModelId,
+      resolvedModelId: model.id,
+      provider: provider?.id || 'unknown',
+      userTier,
+      isFallback,
+      hasImages,
+    });
+
     return {
       provider: provider || modelRegistry.getProvider('gemini')!,
       model,
@@ -83,11 +93,20 @@ export class AIRouter {
       });
     } catch (err: any) {
       console.warn(`[AIRouter] Primary provider ${route.provider.id} error:`, err.message);
+      safeDiagnostics.record('provider_error', {
+        primaryProvider: route.provider.id,
+        modelId: route.model.id,
+        error: err.message,
+      });
       
       // Fallback to Gemini if not already using it
       if (route.provider.id !== 'gemini') {
         const gemini = modelRegistry.getProvider('gemini');
-        if (gemini) {
+        if (gemini && gemini.isConfigured()) {
+          safeDiagnostics.record('provider_fallback', {
+            fromProvider: route.provider.id,
+            toProvider: 'gemini',
+          });
           yield {
             text: `\n\n*(Notice: Switching to Ruhi Gemini engine due to a provider response timeout...)*\n\n`,
             isComplete: false,
@@ -95,6 +114,24 @@ export class AIRouter {
           yield* gemini.streamText({
             ...options,
             modelId: 'ruhi-balanced',
+          });
+          return;
+        }
+      } else {
+        // If Gemini failed, try Groq if configured
+        const groq = modelRegistry.getProvider('groq');
+        if (groq && groq.isConfigured()) {
+          safeDiagnostics.record('provider_fallback', {
+            fromProvider: 'gemini',
+            toProvider: 'groq',
+          });
+          yield {
+            text: `\n\n*(Notice: Switching to Ruhi High-Speed engine due to an upstream provider timeout...)*\n\n`,
+            isComplete: false,
+          };
+          yield* groq.streamText({
+            ...options,
+            modelId: 'llama-3.1-8b-instant',
           });
           return;
         }

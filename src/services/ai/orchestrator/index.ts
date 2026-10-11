@@ -20,6 +20,7 @@ import { responseValidator } from './response';
 import { generateSmartTitle } from './title';
 import { executeDeepResearch } from './deepResearch';
 import { analyzeData } from '@/services/analysis';
+import { safeDiagnostics } from './observability';
 
 export interface OrchestrationRequest {
   userId: string;
@@ -504,130 +505,143 @@ export class AIOrchestrator {
       const completionTokens = Math.round(validated.sanitizedText.length / 4);
       const totalTokens = promptTokens + completionTokens;
 
-      // Handle regeneration versioning on existing message
-      if (regenerateMessageId) {
-        const existing = await Message.findOne({
-          _id: new mongoose.Types.ObjectId(regenerateMessageId),
-          userId: new mongoose.Types.ObjectId(userId),
+      let savedMessageId = 'temp-' + new mongoose.Types.ObjectId().toString();
+
+      try {
+        // Handle regeneration versioning on existing message
+        if (regenerateMessageId) {
+          const existing = await Message.findOne({
+            _id: new mongoose.Types.ObjectId(regenerateMessageId),
+            userId: new mongoose.Types.ObjectId(userId),
+          });
+
+          if (existing) {
+            const currentVersions =
+              existing.versions && existing.versions.length > 0
+                ? existing.versions
+                : [
+                    {
+                      content: existing.content,
+                      model: existing.model,
+                      citations: existing.citations,
+                      toolCalls: existing.toolCalls,
+                      createdAt: existing.createdAt || new Date(),
+                    },
+                  ];
+
+            const newVersion = {
+              content: validated.sanitizedText,
+              model: modelId,
+              citations: validated.validatedCitations.length > 0 ? validated.validatedCitations : undefined,
+              toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+              createdAt: new Date(),
+            };
+
+            const updatedVersions = [...currentVersions, newVersion];
+            existing.versions = updatedVersions as any;
+            existing.activeVersionIndex = updatedVersions.length - 1;
+            existing.content = validated.sanitizedText;
+            existing.citations = validated.validatedCitations.length > 0 ? (validated.validatedCitations as any) : undefined;
+            existing.toolCalls = toolCalls.length > 0 ? (toolCalls as any) : undefined;
+            existing.set('model', modelId);
+            await existing.save();
+            savedMessageId = existing._id.toString();
+          }
+        } else {
+          // Create new assistant message with version 1 initialized
+          const assistantMsg = await Message.create({
+            conversationId: new mongoose.Types.ObjectId(conversationId),
+            userId: new mongoose.Types.ObjectId(userId),
+            role: 'assistant',
+            content: validated.sanitizedText,
+            model: modelId,
+            citations: validated.validatedCitations.length > 0 ? validated.validatedCitations : undefined,
+            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+            versions: [
+              {
+                content: validated.sanitizedText,
+                model: modelId,
+                citations: validated.validatedCitations.length > 0 ? validated.validatedCitations : undefined,
+                toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                createdAt: new Date(),
+              },
+            ],
+            activeVersionIndex: 0,
+            tokenUsage: {
+              promptTokens,
+              completionTokens,
+              totalTokens,
+            },
+          });
+          savedMessageId = assistantMsg._id.toString();
+        }
+
+        // Update conversation metadata
+        await Conversation.findByIdAndUpdate(conversationId, {
+          $set: {
+            'metadata.lastMessagePreview': validated.sanitizedText.slice(0, 100),
+            updatedAt: new Date(),
+          },
+          $inc: { 'metadata.totalMessages': 2 },
         });
 
-        if (existing) {
-          const currentVersions =
-            existing.versions && existing.versions.length > 0
-              ? existing.versions
-              : [
-                  {
-                    content: existing.content,
-                    model: existing.model,
-                    citations: existing.citations,
-                    toolCalls: existing.toolCalls,
-                    createdAt: existing.createdAt || new Date(),
-                  },
-                ];
-
-          const newVersion = {
-            content: validated.sanitizedText,
-            model: modelId,
-            citations: validated.validatedCitations.length > 0 ? validated.validatedCitations : undefined,
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-            createdAt: new Date(),
-          };
-
-          const updatedVersions = [...currentVersions, newVersion];
-          existing.versions = updatedVersions as any;
-          existing.activeVersionIndex = updatedVersions.length - 1;
-          existing.content = validated.sanitizedText;
-          existing.citations = validated.validatedCitations.length > 0 ? (validated.validatedCitations as any) : undefined;
-          existing.toolCalls = toolCalls.length > 0 ? (toolCalls as any) : undefined;
-          existing.set('model', modelId);
-          await existing.save();
-
-          return {
-            messageId: existing._id.toString(),
-            totalTokens,
-            sanitizedText: validated.sanitizedText,
-          };
-        }
-      }
-
-      // Create new assistant message with version 1 initialized
-      const assistantMsg = await Message.create({
-        conversationId: new mongoose.Types.ObjectId(conversationId),
-        userId: new mongoose.Types.ObjectId(userId),
-        role: 'assistant',
-        content: validated.sanitizedText,
-        model: modelId,
-        citations: validated.validatedCitations.length > 0 ? validated.validatedCitations : undefined,
-        toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-        versions: [
-          {
-            content: validated.sanitizedText,
-            model: modelId,
-            citations: validated.validatedCitations.length > 0 ? validated.validatedCitations : undefined,
-            toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-            createdAt: new Date(),
-          },
-        ],
-        activeVersionIndex: 0,
-        tokenUsage: {
+        // Record quota usage
+        await recordUsage({
+          userId,
+          tokensTotal: totalTokens,
           promptTokens,
           completionTokens,
-          totalTokens,
-        },
-      });
+          toolCall: toolCalls.length > 0,
+        });
 
-      // Update conversation metadata
-      await Conversation.findByIdAndUpdate(conversationId, {
-        $set: {
-          'metadata.lastMessagePreview': validated.sanitizedText.slice(0, 100),
-          updatedAt: new Date(),
-        },
-        $inc: { 'metadata.totalMessages': 2 },
-      });
-
-      // Record quota usage
-      await recordUsage({
-        userId,
-        tokensTotal: totalTokens,
-        promptTokens,
-        completionTokens,
-        toolCall: toolCalls.length > 0,
-      });
-
-      // Automatic Artifact Persistence in Workspace for Execution Deliverables
-      if (['CREATE_WEBSITE', 'CREATE_APPLICATION', 'CREATE_ARTIFACT'].includes(intentAnalysis.detailedIntent)) {
-        const codeBlockMatch = validated.sanitizedText.match(/```(?:html|tsx|jsx|typescript|javascript|css)?\n([\s\S]*?)```/);
-        if (codeBlockMatch && codeBlockMatch[1].trim().length > 50) {
-          try {
-            await Artifact.create({
-              userId: new mongoose.Types.ObjectId(userId),
-              conversationId: new mongoose.Types.ObjectId(conversationId),
-              projectId: projectId ? new mongoose.Types.ObjectId(projectId) : undefined,
-              title: conversation?.title || 'Generated Web Application',
-              type: intentAnalysis.detailedIntent === 'CREATE_WEBSITE' ? 'interactive' : 'code',
-              content: codeBlockMatch[1],
-              language: 'typescript',
-              metadata: {
-                source: 'execution_engine',
-                detailedIntent: intentAnalysis.detailedIntent,
-                expectedDeliverable: intentAnalysis.expectedDeliverable,
-              },
-              versions: [
-                {
-                  content: codeBlockMatch[1],
-                  title: conversation?.title || 'Generated Web Application',
-                  createdAt: new Date(),
+        // Automatic Artifact Persistence in Workspace for Execution Deliverables
+        if (['CREATE_WEBSITE', 'CREATE_APPLICATION', 'CREATE_ARTIFACT'].includes(intentAnalysis.detailedIntent)) {
+          const codeBlockMatch = validated.sanitizedText.match(/```(?:html|tsx|jsx|typescript|javascript|css)?\n([\s\S]*?)```/);
+          if (codeBlockMatch && codeBlockMatch[1].trim().length > 50) {
+            try {
+              await Artifact.create({
+                userId: new mongoose.Types.ObjectId(userId),
+                conversationId: new mongoose.Types.ObjectId(conversationId),
+                projectId: projectId ? new mongoose.Types.ObjectId(projectId) : undefined,
+                title: conversation?.title || 'Generated Web Application',
+                type: intentAnalysis.detailedIntent === 'CREATE_WEBSITE' ? 'interactive' : 'code',
+                content: codeBlockMatch[1],
+                language: 'typescript',
+                metadata: {
+                  source: 'execution_engine',
+                  detailedIntent: intentAnalysis.detailedIntent,
+                  expectedDeliverable: intentAnalysis.expectedDeliverable,
                 },
-              ],
-            });
-          } catch (artErr) {
-            console.warn('Artifact auto-persistence handled gracefully:', artErr);
+                versions: [
+                  {
+                    content: codeBlockMatch[1],
+                    title: conversation?.title || 'Generated Web Application',
+                    createdAt: new Date(),
+                  },
+                ],
+              });
+            } catch (artErr) {
+              console.warn('Artifact auto-persistence handled gracefully:', artErr);
+            }
           }
         }
+
+        safeDiagnostics.record('persistence_event', {
+          conversationId,
+          success: true,
+          messageId: savedMessageId,
+        });
+      } catch (dbErr: any) {
+        console.warn('[AIOrchestrator] Non-fatal DB persistence failure (response preserved):', dbErr.message);
+        safeDiagnostics.record('persistence_event', {
+          conversationId,
+          success: false,
+          error: dbErr.message,
+        });
       }
 
       return {
-        messageId: assistantMsg._id.toString(),
+        messageId: savedMessageId,
         totalTokens,
         sanitizedText: validated.sanitizedText,
       };

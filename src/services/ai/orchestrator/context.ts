@@ -215,6 +215,20 @@ At the end, offer:
 === END OF ADVICE DIRECTIVE ===`);
     }
 
+    // 2b. User Correction & Task Continuation Directives
+    if (config.intentAnalysis?.isCorrection) {
+      sections.push(`=== USER CORRECTION DIRECTIVE ===
+The user explicitly corrected the previous response ("${config.intentAnalysis.correctionDetail || ''}").
+LATEST INSTRUCTION WINS:
+Discard previous mistaken assumptions. Completely adapt to their clarification and fulfill their exact intent directly.
+=== END OF CORRECTION DIRECTIVE ===`);
+    } else if (config.intentAnalysis?.detailedIntent === 'CONTINUE_PREVIOUS_TASK') {
+      sections.push(`=== TASK CONTINUATION DIRECTIVE ===
+The user wants to continue or incrementally improve the ongoing task (${config.intentAnalysis.contextTopic || 'ongoing work'}).
+Build directly on previous progress, maintain seamless context, and do not restart from scratch.
+=== END OF CONTINUATION DIRECTIVE ===`);
+    }
+
     // 3. Learning Engine & Socratic Mode Directives
     if (config.isSocraticMode || config.learningMode === 'tutor_socratic') {
       sections.push(`SOCRATIC TUTOR MODE ACTIVE: 
