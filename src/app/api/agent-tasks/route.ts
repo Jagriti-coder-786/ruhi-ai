@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import connectDB from '@/lib/db/mongoose';
 import AgentTask from '@/models/AgentTask';
 import { requireAuth } from '@/lib/auth/session';
+import { agentTaskQueue } from '@/services/queue/agentQueue';
 
 export async function GET(req: Request) {
   try {
@@ -46,8 +47,10 @@ export async function POST(req: Request) {
       approvalMode: approvalMode || 'safe',
     });
 
-    // In a real implementation, we would trigger the orchestrator background job here
-    // e.g., await queueAgentTask(task._id);
+    // Enqueue task for background processing with status tracking and retries
+    agentTaskQueue.enqueueTask(task._id.toString()).catch((err) => {
+      console.warn('[AgentTasksAPI] Background task enqueue error:', err);
+    });
 
     return NextResponse.json({ task }, { status: 201 });
   } catch (err: any) {

@@ -12,3 +12,4 @@ export { Artifact } from './Artifact';
 export { Connector } from './Connector';
 export { ScheduledTask } from './ScheduledTask';
 export { Organization } from './Organization';
+export { OrganizationInvite } from './OrganizationInvite';

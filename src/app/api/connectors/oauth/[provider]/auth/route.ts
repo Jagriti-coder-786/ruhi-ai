@@ -1,41 +1,54 @@
 import { NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth/session';
+import { OAUTH_CONFIGS, getValidatedCallbackUrl } from '@/services/oauth/config';
+import { createOAuthState } from '@/services/oauth/state';
 
-export async function GET(req: Request, context: { params: Promise<{ provider: string }> }) {
+export async function GET(
+  req: Request,
+  context: { params: Promise<{ provider: string }> }
+) {
   try {
     const user = await requireAuth(req);
     const { provider } = await context.params;
 
-    const protocol = req.headers.get('x-forwarded-proto') || 'http';
-    const host = req.headers.get('host') || 'localhost:3000';
-    const callbackUrl = `${protocol}://${host}/api/connectors/oauth/${provider}/callback`;
-
-    let authUrl = '';
-
-    if (provider === 'google_drive' || provider === 'gmail' || provider === 'google_calendar') {
-      const clientId = process.env.GOOGLE_CLIENT_ID;
-      if (!clientId) throw new Error('Missing GOOGLE_CLIENT_ID');
-
-      // Scopes based on provider
-      let scope = '';
-      if (provider === 'google_drive') scope = 'https://www.googleapis.com/auth/drive.readonly';
-      if (provider === 'gmail') scope = 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose';
-      if (provider === 'google_calendar') scope = 'https://www.googleapis.com/auth/calendar';
-
-      authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${user.userId}`;
-    } else if (provider === 'github') {
-      const clientId = process.env.GITHUB_CLIENT_ID;
-      if (!clientId) throw new Error('Missing GITHUB_CLIENT_ID');
-      
-      authUrl = `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=repo,user&state=${user.userId}`;
-    } else {
-      return NextResponse.json({ error: 'Unsupported provider' }, { status: 400 });
+    const config = OAUTH_CONFIGS[provider];
+    if (!config) {
+      return NextResponse.json(
+        { error: `Unsupported OAuth connector: "${provider}". Supported: google_drive, github, slack.` },
+        { status: 400 }
+      );
     }
 
-    return NextResponse.redirect(authUrl);
+    const clientId = process.env[config.clientIdEnv];
+    if (!clientId) {
+      return NextResponse.json(
+        {
+          error: `Missing OAuth credentials for ${config.name}. Please set ${config.clientIdEnv} in your environment variables.`,
+          requiredEnv: config.clientIdEnv,
+        },
+        { status: 400 }
+      );
+    }
 
+    const callbackUrl = getValidatedCallbackUrl(req, provider);
+    const stateToken = createOAuthState(user.userId, provider);
+
+    let authRedirectUrl = '';
+
+    if (provider === 'google_drive') {
+      const scopeParam = encodeURIComponent(config.defaultScopes.join(' '));
+      authRedirectUrl = `${config.authUrl}?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&response_type=code&scope=${scopeParam}&access_type=offline&prompt=consent&state=${stateToken}`;
+    } else if (provider === 'github') {
+      const scopeParam = encodeURIComponent(config.defaultScopes.join(','));
+      authRedirectUrl = `${config.authUrl}?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=${scopeParam}&state=${stateToken}`;
+    } else if (provider === 'slack') {
+      const scopeParam = encodeURIComponent(config.defaultScopes.join(','));
+      authRedirectUrl = `${config.authUrl}?client_id=${clientId}&redirect_uri=${encodeURIComponent(callbackUrl)}&scope=&user_scope=${scopeParam}&state=${stateToken}`;
+    }
+
+    return NextResponse.redirect(authRedirectUrl);
   } catch (err: any) {
-    if (err.message === 'Unauthorized' || err.status === 401) {
+    if (err.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });

@@ -2,7 +2,7 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 
 export interface IConnectorIntegration extends Document {
   userId: mongoose.Types.ObjectId;
-  provider: 'google_drive' | 'gmail' | 'google_calendar' | 'github' | 'notion';
+  provider: 'google_drive' | 'gmail' | 'google_calendar' | 'github' | 'notion' | 'slack';
   accessToken: string; // Should be encrypted in a production environment
   refreshToken?: string; // Should be encrypted in a production environment
   expiresAt?: Date;
@@ -17,7 +17,7 @@ const ConnectorIntegrationSchema = new Schema<IConnectorIntegration>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     provider: {
       type: String,
-      enum: ['google_drive', 'gmail', 'google_calendar', 'github', 'notion'],
+      enum: ['google_drive', 'gmail', 'google_calendar', 'github', 'notion', 'slack'],
       required: true,
     },
     accessToken: { type: String, required: true },

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx tests/run-tests.ts && npx tsx tests/test-execution-engine.ts && npx tsx tests/test-personality.ts && npx tsx tests/test-evaluation-suite.ts && npx tsx tests/test-audit-security-team.ts"
+    "test": "npx tsx tests/run-tests.ts && npx tsx tests/test-execution-engine.ts && npx tsx tests/test-personality.ts && npx tsx tests/test-evaluation-suite.ts && npx tsx tests/test-audit-security-team.ts && npx tsx tests/test-invitations-oauth-queue.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

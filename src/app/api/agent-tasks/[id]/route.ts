@@ -4,6 +4,7 @@ import connectDB from '@/lib/db/mongoose';
 import AgentTask from '@/models/AgentTask';
 import AuditLog from '@/models/AuditLog';
 import { requireAuth } from '@/lib/auth/session';
+import { agentTaskQueue } from '@/services/queue/agentQueue';
 
 export async function GET(
   req: Request,
@@ -91,6 +92,13 @@ export async function PATCH(
     }
 
     await task.save();
+
+    // If human granted approval, resume background queue execution
+    if (approvalDecision === 'approved') {
+      agentTaskQueue.resumeTask(task._id.toString()).catch((err: any) => {
+        console.warn('[AgentTaskApproval] Background resumption error:', err);
+      });
+    }
 
     await AuditLog.create({
       userId: new mongoose.Types.ObjectId(user.userId),
