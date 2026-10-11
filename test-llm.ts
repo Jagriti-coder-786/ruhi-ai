@@ -6,7 +6,7 @@ import { contextManager } from './src/services/ai/orchestrator/context';
 async function test() {
   await connectDB();
   const systemInstruction = contextManager.buildSystemPrompt({
-    languageAnalysis: { primaryLanguage: 'en', confidence: 1 },
+    languageAnalysis: { detectedLanguage: 'en', isHinglish: false, confidence: 1, promptGuidance: '' },
     conversationSummary: '',
   });
 

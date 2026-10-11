@@ -305,22 +305,20 @@ export class GeminiProvider implements AIProvider {
 
   private fallbackSimulatedResponse(options: GenerateTextOptions): TextGenerationResult {
     const lastUserMsg = options.messages.filter((m) => m.role === 'user').pop()?.content || '';
-    const text = `Hello! I am **Ruhi AI**, your personal intelligence assistant.\n\nI processed your query: *"**${lastUserMsg}**"*\n\nGoogle Gemini API key is configured. Everything in Ruhi AI is live!`;
+    const text = `I'm Ruhi — here to help! I received your request: "${lastUserMsg}". To activate live AI generation, please ensure your GEMINI_API_KEY is set in your environment.`;
     return {
       text,
-      usage: { promptTokens: 30, completionTokens: 120, totalTokens: 150 },
+      usage: { promptTokens: 30, completionTokens: 50, totalTokens: 80 },
     };
   }
 
   private async *fallbackSimulatedStream(options: GenerateTextOptions): AsyncGenerator<StreamChunk, void, unknown> {
     const lastUserMsg = options.messages.filter((m) => m.role === 'user').pop()?.content || '';
     const words = [
-      'Hello! ',
-      'I am **Ruhi AI**, ',
-      'your intelligent assistant. ',
-      '\n\n',
-      `I processed your request: *"**${lastUserMsg}**"*\n\n`,
-      'Ruhi AI intelligence core is active.\n',
+      "I'm Ruhi — here to help! ",
+      `I received your request: "${lastUserMsg}". `,
+      "To activate live AI generation, ",
+      "please ensure your GEMINI_API_KEY is configured in your environment.",
     ];
 
     for (const chunk of words) {

@@ -39,6 +39,12 @@ export class GrokProvider implements AIProvider {
       throw new Error('xAI Grok Provider is not configured.');
     }
 
+    const messages = [];
+    if (options.systemInstruction) {
+      messages.push({ role: 'system', content: options.systemInstruction });
+    }
+    messages.push(...options.messages.map((m) => ({ role: m.role, content: m.content })));
+
     const res = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -47,7 +53,7 @@ export class GrokProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: options.modelId || 'grok-2',
-        messages: options.messages.map((m) => ({ role: m.role, content: m.content })),
+        messages,
         temperature: options.temperature ?? 0.7,
       }),
     });

@@ -52,6 +52,12 @@ export class OpenAIProvider implements AIProvider {
       throw new Error('OpenAI Provider is not configured. Please add OPENAI_API_KEY to your environment.');
     }
 
+    const messages = [];
+    if (options.systemInstruction) {
+      messages.push({ role: 'system', content: options.systemInstruction });
+    }
+    messages.push(...options.messages.map((m) => ({ role: m.role, content: m.content })));
+
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -60,7 +66,7 @@ export class OpenAIProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: options.modelId || 'gpt-4o-mini',
-        messages: options.messages.map((m) => ({ role: m.role, content: m.content })),
+        messages,
         temperature: options.temperature ?? 0.7,
       }),
     });
@@ -86,6 +92,12 @@ export class OpenAIProvider implements AIProvider {
       throw new Error('OpenAI Provider is not configured. Please add OPENAI_API_KEY to your environment.');
     }
 
+    const messages = [];
+    if (options.systemInstruction) {
+      messages.push({ role: 'system', content: options.systemInstruction });
+    }
+    messages.push(...options.messages.map((m) => ({ role: m.role, content: m.content })));
+
     const res = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -94,7 +106,7 @@ export class OpenAIProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: options.modelId || 'gpt-4o-mini',
-        messages: options.messages.map((m) => ({ role: m.role, content: m.content })),
+        messages,
         temperature: options.temperature ?? 0.7,
         stream: true,
       }),

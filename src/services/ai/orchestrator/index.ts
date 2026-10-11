@@ -199,20 +199,21 @@ export class AIOrchestrator {
         intentAnalysis,
         stream: fileReqGenerator(),
         finalizeMessage: async () => {
+          const validated = responseValidator.validate(directText);
           const assistantMsg = await Message.create({
             conversationId: new mongoose.Types.ObjectId(conversationId),
             userId: new mongoose.Types.ObjectId(userId),
             role: 'assistant',
-            content: directText,
+            content: validated.sanitizedText,
             model: modelId,
-            versions: [{ content: directText, model: modelId, createdAt: new Date() }],
+            versions: [{ content: validated.sanitizedText, model: modelId, createdAt: new Date() }],
             activeVersionIndex: 0,
             tokenUsage: { promptTokens: 10, completionTokens: 25, totalTokens: 35 },
           });
           return {
             messageId: assistantMsg._id.toString(),
             totalTokens: 35,
-            sanitizedText: directText,
+            sanitizedText: validated.sanitizedText,
           };
         },
       };
@@ -241,20 +242,21 @@ export class AIOrchestrator {
           intentAnalysis,
           stream: directGenerator(),
           finalizeMessage: async () => {
+            const validated = responseValidator.validate(directText);
             const assistantMsg = await Message.create({
               conversationId: new mongoose.Types.ObjectId(conversationId),
               userId: new mongoose.Types.ObjectId(userId),
               role: 'assistant',
-              content: directText,
+              content: validated.sanitizedText,
               model: modelId,
-              versions: [{ content: directText, model: modelId, createdAt: new Date() }],
+              versions: [{ content: validated.sanitizedText, model: modelId, createdAt: new Date() }],
               activeVersionIndex: 0,
               tokenUsage: { promptTokens: 10, completionTokens: 20, totalTokens: 30 },
             });
             return {
               messageId: assistantMsg._id.toString(),
               totalTokens: 30,
-              sanitizedText: directText,
+              sanitizedText: validated.sanitizedText,
             };
           },
         };
@@ -288,21 +290,22 @@ export class AIOrchestrator {
         intentAnalysis,
         stream: researchGenerator(),
         finalizeMessage: async () => {
+          const validated = responseValidator.validate(directText, citations);
           const assistantMsg = await Message.create({
             conversationId: new mongoose.Types.ObjectId(conversationId),
             userId: new mongoose.Types.ObjectId(userId),
             role: 'assistant',
-            content: directText,
+            content: validated.sanitizedText,
             model: modelId,
-            citations,
-            versions: [{ content: directText, model: modelId, createdAt: new Date() }],
+            citations: validated.validatedCitations.length > 0 ? validated.validatedCitations : undefined,
+            versions: [{ content: validated.sanitizedText, model: modelId, createdAt: new Date() }],
             activeVersionIndex: 0,
             tokenUsage: { promptTokens: 100, completionTokens: 400, totalTokens: 500 },
           });
           return {
             messageId: assistantMsg._id.toString(),
             totalTokens: 500,
-            sanitizedText: directText,
+            sanitizedText: validated.sanitizedText,
           };
         },
       };
@@ -346,20 +349,21 @@ export class AIOrchestrator {
         intentAnalysis,
         stream: analysisGenerator(),
         finalizeMessage: async () => {
+          const validated = responseValidator.validate(directText);
           const assistantMsg = await Message.create({
             conversationId: new mongoose.Types.ObjectId(conversationId),
             userId: new mongoose.Types.ObjectId(userId),
             role: 'assistant',
-            content: directText,
+            content: validated.sanitizedText,
             model: modelId,
-            versions: [{ content: directText, model: modelId, createdAt: new Date() }],
+            versions: [{ content: validated.sanitizedText, model: modelId, createdAt: new Date() }],
             activeVersionIndex: 0,
             tokenUsage: { promptTokens: 50, completionTokens: 250, totalTokens: 300 },
           });
           return {
             messageId: assistantMsg._id.toString(),
             totalTokens: 300,
-            sanitizedText: directText,
+            sanitizedText: validated.sanitizedText,
           };
         },
       };
