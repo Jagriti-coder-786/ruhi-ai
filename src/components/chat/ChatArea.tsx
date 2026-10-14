@@ -32,8 +32,14 @@ import {
   LayoutGrid,
   Plug,
   CalendarClock,
+  Menu,
+  Sun,
+  Moon,
+  Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/providers/ThemeProvider';
 import MarkdownRenderer from './MarkdownRenderer';
 import { FeedbackModal } from '@/components/modals/FeedbackModal';
 import { IMessage, ModelCapability, ICitation, IAttachment } from '@/types';
@@ -67,6 +73,7 @@ interface ChatAreaProps {
   onOpenWorkspace?: (tab?: 'document' | 'code' | 'spreadsheet' | 'presentation') => void;
   onOpenConnectors?: () => void;
   onOpenTasks?: () => void;
+  onToggleSidebar?: () => void;
 }
 
 export function ChatArea({
@@ -93,14 +100,18 @@ export function ChatArea({
   onOpenWorkspace,
   onOpenConnectors,
   onOpenTasks,
+  onToggleSidebar,
 }: ChatAreaProps) {
   const { user } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const [input, setInput] = useState('');
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [attachments, setAttachments] = useState<IAttachment[]>([]);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [selectedCitation, setSelectedCitation] = useState<ICitation | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   // Editing state for user messages
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
@@ -160,52 +171,67 @@ export function ChatArea({
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const isImage = file.type.startsWith('image/');
+    setIsUploading(true);
+    setUploadError(null);
 
-      if (isImage) {
-        const reader = new FileReader();
-        reader.onload = () => {
-          setAttachments((prev) => [
-            ...prev,
-            {
-              name: file.name,
-              type: 'image',
-              mimeType: file.type,
-              size: file.size,
-              dataBase64: reader.result as string,
-            },
-          ]);
-        };
-        reader.readAsDataURL(file);
-      } else {
-        const formData = new FormData();
-        formData.append('file', file);
-        try {
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const isImage = file.type.startsWith('image/');
+
+        if (isImage) {
+          await new Promise<void>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              setAttachments((prev) => [
+                ...prev,
+                {
+                  name: file.name,
+                  type: 'image',
+                  mimeType: file.type,
+                  size: file.size,
+                  dataBase64: reader.result as string,
+                },
+              ]);
+              resolve();
+            };
+            reader.onerror = () => reject(new Error('Failed to read image file'));
+            reader.readAsDataURL(file);
+          });
+        } else {
+          const formData = new FormData();
+          formData.append('file', file);
           const res = await fetch('/api/documents', {
             method: 'POST',
             body: formData,
           });
-          if (res.ok) {
-            const data = await res.json();
-            setAttachments((prev) => [
-              ...prev,
-              {
-                name: file.name,
-                type: 'document',
-                mimeType: file.type || 'application/pdf',
-                size: file.size,
-                documentId: data.document?._id,
-              },
-            ]);
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(errData.error || `Failed to process ${file.name}`);
           }
-        } catch (err) {
-          console.error('File upload failed:', err);
+
+          const data = await res.json();
+          setAttachments((prev) => [
+            ...prev,
+            {
+              name: file.name,
+              type: 'document',
+              mimeType: file.type || 'application/pdf',
+              size: file.size,
+              documentId: data.document?.id || data.document?._id,
+            },
+          ]);
         }
       }
+    } catch (err: any) {
+      console.error('File upload failed:', err);
+      setUploadError(err.message || 'File upload failed');
+      setTimeout(() => setUploadError(null), 5000);
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
-    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const removeAttachment = (idx: number) => {
@@ -317,8 +343,20 @@ export function ChatArea({
     <div className="flex-1 flex flex-col h-screen bg-[#070a13] text-slate-100 overflow-hidden relative">
       {/* Top Header Bar */}
       <header className="h-16 border-b border-slate-800/80 px-4 md:px-8 flex items-center justify-between bg-[#070a13]/80 backdrop-blur-md z-20 flex-shrink-0">
-        {/* Model Selector Pill */}
-        <div className="relative">
+        <div className="flex items-center gap-2">
+          {onToggleSidebar && (
+            <button
+              onClick={onToggleSidebar}
+              className="p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white md:hidden transition-colors"
+              title="Toggle sidebar"
+              aria-label="Toggle navigation sidebar"
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+          )}
+
+          {/* Model Selector Pill */}
+          <div className="relative">
           <button
             onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
             className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 hover:border-purple-500/40 text-xs font-semibold text-slate-200 transition-all shadow-sm"
@@ -380,9 +418,24 @@ export function ChatArea({
             </div>
           )}
         </div>
+        </div>
 
-        {/* Right Tools (Temporary Chat, Share, Export, Web Search, Voice) */}
+        {/* Right Tools (Temporary Chat, Share, Export, Web Search, Voice, Theme) */}
         <div className="flex items-center gap-2 md:gap-3">
+          {/* Theme Mode Toggle */}
+          <button
+            onClick={toggleTheme}
+            className="p-2 rounded-xl bg-slate-800/40 hover:bg-slate-800 border border-slate-700/60 text-slate-300 hover:text-white transition-colors"
+            title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-3.5 h-3.5 text-amber-400" />
+            ) : (
+              <Moon className="w-3.5 h-3.5 text-purple-400" />
+            )}
+          </button>
+
           {/* Temporary Chat Toggle */}
           <button
             onClick={onToggleTemporaryChat}
@@ -478,6 +531,19 @@ export function ChatArea({
           </button>
         </div>
       </header>
+
+      {/* Upload Error Banner */}
+      {uploadError && (
+        <div className="bg-rose-500/15 border-b border-rose-500/30 px-6 py-2.5 flex items-center justify-between text-xs text-rose-300 flex-shrink-0 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+            <span>{uploadError}</span>
+          </div>
+          <button onClick={() => setUploadError(null)} className="text-rose-400 hover:text-rose-200" title="Dismiss error">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Temporary Chat Notice Banner */}
       {isTemporaryChat && (
@@ -764,7 +830,7 @@ export function ChatArea({
 
               {currentStreamingText ? (
                 <>
-                  <MarkdownRenderer content={currentStreamingText} />
+                  <MarkdownRenderer content={currentStreamingText} isStreaming={true} />
                   <span className="streaming-cursor" />
                 </>
               ) : (
@@ -857,10 +923,16 @@ export function ChatArea({
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors"
-                  title="Upload images or documents (RAG)"
+                  disabled={isUploading}
+                  className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                  title={isUploading ? 'Uploading file...' : 'Upload images or documents (RAG)'}
+                  aria-label="Upload file"
                 >
-                  <Paperclip className="w-4 h-4" />
+                  {isUploading ? (
+                    <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
+                  ) : (
+                    <Paperclip className="w-4 h-4" />
+                  )}
                 </button>
 
                 <button

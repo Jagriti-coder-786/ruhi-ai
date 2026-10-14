@@ -198,8 +198,17 @@ export function WorkspacePanel({
       blob = new Blob([codeContent], { type: 'text/plain' });
     } else if (activeTab === 'spreadsheet') {
       filename += '.csv';
-      const csvStr = [sheetHeaders.join(','), ...sheetRows.map((r) => r.join(','))].join('\n');
-      blob = new Blob([csvStr], { type: 'text/csv' });
+      const escapeCsvCell = (val: string) => {
+        const s = String(val ?? '');
+        if (s.includes(',') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+          return `"${s.replace(/"/g, '""')}"`;
+        }
+        return s;
+      };
+      const headerLine = sheetHeaders.map(escapeCsvCell).join(',');
+      const rowLines = sheetRows.map((row) => row.map(escapeCsvCell).join(','));
+      const csvStr = [headerLine, ...rowLines].join('\n');
+      blob = new Blob([csvStr], { type: 'text/csv;charset=utf-8;' });
     } else {
       filename += '.json';
       blob = new Blob([JSON.stringify(slides, null, 2)], { type: 'application/json' });

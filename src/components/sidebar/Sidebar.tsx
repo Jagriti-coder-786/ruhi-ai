@@ -61,11 +61,20 @@ export function Sidebar({
   const recentChats = conversations.filter((c) => !c.pinned && !c.archived);
 
   return (
-    <aside
-      className={`relative h-screen bg-[#080c16] border-r border-slate-800/80 flex flex-col transition-all duration-300 z-30 select-none ${
-        isCollapsed ? 'w-20' : 'w-72'
-      }`}
-    >
+    <>
+      {/* Mobile backdrop */}
+      {!isCollapsed && (
+        <div
+          onClick={onToggleCollapse}
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden animate-fade-in"
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={`fixed md:relative inset-y-0 left-0 h-screen bg-[#080c16] border-r border-slate-800/80 flex flex-col transition-all duration-300 z-40 select-none ${
+          isCollapsed ? 'max-md:-translate-x-full max-md:w-0 md:w-20' : 'w-72 max-md:shadow-2xl'
+        }`}
+      >
       {/* Brand Header */}
       <div className="flex items-center justify-between p-4 border-b border-slate-800/60">
         <Link href="/" className="flex items-center gap-2.5 overflow-hidden group">
@@ -348,6 +357,7 @@ export function Sidebar({
         )}
       </div>
     </aside>
+    </>
   );
 }
 

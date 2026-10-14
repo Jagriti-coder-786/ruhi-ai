@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json({ tasks });
   } catch (err: any) {
-    if (err.message === 'Unauthorized' || err.status === 401) {
+    if (err.message === 'Unauthorized' || err.message === 'UNAUTHORIZED' || err.status === 401) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });
@@ -54,7 +54,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ task }, { status: 201 });
   } catch (err: any) {
-    if (err.message === 'Unauthorized' || err.status === 401) {
+    if (err.message === 'Unauthorized' || err.message === 'UNAUTHORIZED' || err.status === 401) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 });

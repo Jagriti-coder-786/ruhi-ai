@@ -70,6 +70,8 @@ export class AIOrchestrator {
       onStatusUpdate,
     } = req;
 
+    const requestStartTime = Date.now();
+
     await connectDB();
 
     // 1. Quota Check
@@ -592,6 +594,20 @@ export class AIOrchestrator {
           promptTokens,
           completionTokens,
           toolCall: toolCalls.length > 0,
+        });
+
+        // Record observability diagnostics (latency, token breakdown, safe metadata)
+        const durationMs = Date.now() - requestStartTime;
+        safeDiagnostics.record('response_validated', {
+          modelId,
+          durationMs,
+          promptTokens,
+          completionTokens,
+          totalTokens,
+          toolCallsCount: toolCalls.length,
+          citationsCount: citations.length,
+          detectedLanguage: languageAnalysis.detectedLanguage,
+          isHinglish: languageAnalysis.isHinglish,
         });
 
         // Automatic Artifact Persistence in Workspace for Execution Deliverables

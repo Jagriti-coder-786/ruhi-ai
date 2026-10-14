@@ -215,7 +215,7 @@ export function executeSandboxedCode(
   const startTime = Date.now();
   const logs: string[] = [];
 
-  // Strictly prohibited tokens to prevent server breakout
+  // Strictly prohibited tokens to prevent server & browser environment breakout
   const blockedTokens = [
     'process.',
     'require(',
@@ -229,6 +229,14 @@ export function executeSandboxedCode(
     '__filename',
     'eval(',
     'Function(',
+    'window.',
+    'document.',
+    'localStorage.',
+    'sessionStorage.',
+    'fetch(',
+    'XMLHttpRequest',
+    'WebSocket',
+    'indexedDB',
   ];
 
   for (const token of blockedTokens) {
@@ -249,14 +257,54 @@ export function executeSandboxedCode(
       error: (...args: any[]) => logs.push('[ERROR] ' + args.join(' ')),
     };
 
-    // Scoped execution function
-    const scopedRunner = new Function('console', 'Math', 'JSON', `
+    // Scoped execution function shadowing browser and runtime globals
+    const scopedRunner = new Function(
+      'console',
+      'Math',
+      'JSON',
+      'window',
+      'document',
+      'globalThis',
+      'global',
+      'fetch',
+      'XMLHttpRequest',
+      'WebSocket',
+      'localStorage',
+      'sessionStorage',
+      'navigator',
+      'location',
+      `
       "use strict";
       ${code}
-    `);
+    `
+    );
 
-    const result = scopedRunner(mockConsole, Math, JSON);
+    const result = scopedRunner(
+      mockConsole,
+      Math,
+      JSON,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
     const executionTimeMs = Date.now() - startTime;
+
+    if (executionTimeMs > timeoutMs) {
+      return {
+        success: false,
+        logs,
+        executionTimeMs,
+        error: `Execution timed out (${executionTimeMs}ms > ${timeoutMs}ms limit).`,
+      };
+    }
 
     return {
       success: true,

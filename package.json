@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "npx tsx tests/run-tests.ts && npx tsx tests/test-execution-engine.ts && npx tsx tests/test-personality.ts && npx tsx tests/test-evaluation-suite.ts && npx tsx tests/test-audit-security-team.ts && npx tsx tests/test-invitations-oauth-queue.ts"
+    "test": "npx tsx tests/run-tests.ts && npx tsx tests/test-execution-engine.ts && npx tsx tests/test-personality.ts && npx tsx tests/test-evaluation-suite.ts && npx tsx tests/test-audit-security-team.ts && npx tsx tests/test-invitations-oauth-queue.ts && npx tsx tests/test-reliability-ux.ts && npx tsx tests/test-mermaid-diagrams.ts && npx tsx tests/test-rich-interactive-experience.ts && npx tsx tests/test-quality-benchmarking.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
@@ -17,6 +17,7 @@
     "dotenv": "^18.0.6",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.52.0",
+    "mermaid": "^12.2.0",
     "mongoose": "^9.11.0",
     "next": "16.3.8",
     "razorpay": "^2.9.8",

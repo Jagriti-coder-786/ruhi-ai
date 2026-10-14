@@ -20,6 +20,7 @@ export function VoiceModal({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
+  const [speechError, setSpeechError] = useState<string | null>(null);
   const recognitionRef = useRef<any>(null);
 
   // Initialize Speech Recognition
@@ -101,8 +102,9 @@ export function VoiceModal({
   }, [lastAssistantResponse, isOpen]);
 
   const toggleListening = () => {
+    setSpeechError(null);
     if (!recognitionRef.current) {
-      alert('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+      setSpeechError('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
       return;
     }
 
@@ -204,9 +206,18 @@ export function VoiceModal({
         </div>
 
         <h3 className="text-xl font-bold text-white mb-2">Hands-Free Ruhi Voice</h3>
-        <p className="text-sm text-slate-400 mb-6 max-w-sm">
+        <p className="text-sm text-slate-400 mb-4 max-w-sm">
           Natural speech-to-text and auditory synthesis. Speak your prompt or question naturally.
         </p>
+
+        {speechError && (
+          <div
+            role="alert"
+            className="w-full p-3 mb-4 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs text-center"
+          >
+            {speechError}
+          </div>
+        )}
 
         {/* Real-time transcript box */}
         <div className="w-full min-h-[70px] p-4 rounded-2xl bg-slate-950/70 border border-slate-800 text-sm text-slate-200 mb-6 text-left flex items-center justify-center italic">

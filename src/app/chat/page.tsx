@@ -92,11 +92,31 @@ export default function ChatPage() {
     }
   };
 
+  // Refresh Recovery: Restore active conversation ID from URL query or localStorage
   useEffect(() => {
     if (user) {
       loadConversations();
+      if (!activeConversationId && typeof window !== 'undefined') {
+        const urlParams = new URLSearchParams(window.location.search);
+        const urlConvoId = urlParams.get('id');
+        const savedId = urlConvoId || localStorage.getItem('ruhi_active_conversation_id');
+        if (savedId) {
+          setActiveConversationId(savedId);
+        }
+      }
     }
   }, [user]);
+
+  // Sync activeConversationId to localStorage for refresh persistence
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (activeConversationId) {
+        localStorage.setItem('ruhi_active_conversation_id', activeConversationId);
+      } else {
+        localStorage.removeItem('ruhi_active_conversation_id');
+      }
+    }
+  }, [activeConversationId]);
 
   // Fetch messages when active conversation changes
   useEffect(() => {
@@ -194,7 +214,7 @@ export default function ChatPage() {
       });
 
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({ error: `Chat request failed with status ${res.status}` }));
         throw new Error(err.error || 'Chat request failed');
       }
 
@@ -239,19 +259,60 @@ export default function ChatPage() {
               setCurrentStreamingText(streamedAssistantContent);
             } else if (data.type === 'done') {
               setToolStatus(null);
+              let loadedFromServer = false;
               // Refresh messages list to pick up multi-version structures
               if (serverConvoId) {
-                const msgRes = await fetch(`/api/messages?conversationId=${serverConvoId}`);
-                if (msgRes.ok) {
-                  const msgData = await msgRes.json();
-                  setMessages(msgData.messages || []);
+                try {
+                  const msgRes = await fetch(`/api/messages?conversationId=${serverConvoId}`);
+                  if (msgRes.ok) {
+                    const msgData = await msgRes.json();
+                    if (Array.isArray(msgData.messages) && msgData.messages.length > 0) {
+                      setMessages(msgData.messages);
+                      loadedFromServer = true;
+                    }
+                  }
+                } catch (loadErr) {
+                  console.warn('Failed to refresh messages from server:', loadErr);
                 }
               }
+
+              // Reliable fallback: ensure assistant content is never lost if server fetch lagged
+              if (!loadedFromServer && streamedAssistantContent) {
+                setMessages((prev) => [
+                  ...prev,
+                  {
+                    _id: data.messageId || `asst_${Date.now()}`,
+                    conversationId: serverConvoId || '',
+                    userId: user?._id || '',
+                    role: 'assistant',
+                    content: streamedAssistantContent,
+                    citations: currentCitations,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                  },
+                ]);
+              }
+
               setCurrentStreamingText('');
               setIsStreaming(false);
               if (!isTemporaryChat) loadConversations();
             } else if (data.type === 'error') {
-              throw new Error(data.error);
+              const streamErrorMessage = data.error || 'Stream processing encountered an error';
+              setMessages((prev) => [
+                ...prev,
+                {
+                  _id: `err_${Date.now()}`,
+                  conversationId: serverConvoId || activeConversationId || '',
+                  userId: user?._id || '',
+                  role: 'assistant',
+                  content: `⚠️ **Ruhi AI Notice**: ${streamErrorMessage}`,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                },
+              ]);
+              setCurrentStreamingText('');
+              setIsStreaming(false);
+              return;
             }
           } catch (e: any) {
             console.warn('Stream parse error:', e.message);
@@ -380,9 +441,15 @@ export default function ChatPage() {
   };
 
   const handleNewChat = () => {
+    if (isStreaming && abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      setIsStreaming(false);
+    }
     setActiveConversationId(null);
     setMessages([]);
     setCurrentStreamingText('');
+    setCurrentCitations([]);
+    setToolStatus(null);
   };
 
   // Delete Conversation with Undo support
@@ -467,8 +534,16 @@ export default function ChatPage() {
         conversations={conversations}
         activeConversationId={activeConversationId}
         onSelectConversation={(id) => {
+          if (activeConversationId === id) return;
+          if (isStreaming && abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            setIsStreaming(false);
+          }
           setIsTemporaryChat(false);
           setActiveConversationId(id);
+          setCurrentStreamingText('');
+          setCurrentCitations([]);
+          setToolStatus(null);
         }}
         onNewChat={handleNewChat}
         onDeleteConversation={handleDeleteConversation}
@@ -510,6 +585,7 @@ export default function ChatPage() {
         }}
         onOpenConnectors={() => setConnectorsOpen(true)}
         onOpenTasks={() => setTasksOpen(true)}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
       />
 
       {/* Voice Assistant Modal */}

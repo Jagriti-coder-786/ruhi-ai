@@ -49,8 +49,16 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { title, type, content, language, metadata, conversationId, projectId } = body;
 
-    if (!title || !content === undefined) {
+    if (!title || typeof title !== 'string' || !title.trim() || content === undefined || content === null) {
       return NextResponse.json({ error: 'Title and content are required' }, { status: 400 });
+    }
+
+    if (title.trim().length > 200) {
+      return NextResponse.json({ error: 'Title cannot exceed 200 characters' }, { status: 400 });
+    }
+
+    if (typeof content === 'string' && content.length > 500000) {
+      return NextResponse.json({ error: 'Content size exceeds maximum limit (500KB)' }, { status: 400 });
     }
 
     const validTypes = ['document', 'code', 'spreadsheet', 'presentation', 'table', 'chart', 'diagram', 'interactive'];

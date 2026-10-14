@@ -27,6 +27,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Message content or attachment is required' }, { status: 400 });
     }
 
+    if (content && typeof content === 'string' && content.length > 50000) {
+      return NextResponse.json({ error: 'Message content exceeds maximum allowed length (50,000 characters)' }, { status: 400 });
+    }
+
+    if (Array.isArray(attachments) && attachments.length > 10) {
+      return NextResponse.json({ error: 'Maximum of 10 attachments allowed per message' }, { status: 400 });
+    }
+
     const textEncoder = new TextEncoder();
 
     const stream = new ReadableStream({

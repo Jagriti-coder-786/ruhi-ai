@@ -58,8 +58,8 @@ export async function PATCH(req: Request) {
     const body = await req.json();
     const { messageId, feedback, feedbackReason, feedbackComment, activeVersionIndex, content } = body;
 
-    if (!messageId) {
-      return NextResponse.json({ error: 'messageId is required' }, { status: 400 });
+    if (!messageId || !mongoose.Types.ObjectId.isValid(messageId)) {
+      return NextResponse.json({ error: 'Valid messageId is required' }, { status: 400 });
     }
 
     const message = await Message.findOne({
@@ -72,12 +72,14 @@ export async function PATCH(req: Request) {
     }
 
     if (feedback !== undefined) {
-      message.feedback = feedback;
-      if (feedbackReason !== undefined) message.feedbackReason = feedbackReason;
-      if (feedbackComment !== undefined) message.feedbackComment = feedbackComment;
+      if (feedback === 'like' || feedback === 'dislike') {
+        message.feedback = feedback;
+        if (typeof feedbackReason === 'string') message.feedbackReason = feedbackReason.slice(0, 500);
+        if (typeof feedbackComment === 'string') message.feedbackComment = feedbackComment.slice(0, 1000);
+      }
     }
 
-    if (typeof activeVersionIndex === 'number' && message.versions && message.versions.length > activeVersionIndex) {
+    if (typeof activeVersionIndex === 'number' && message.versions && activeVersionIndex >= 0 && activeVersionIndex < message.versions.length) {
       message.activeVersionIndex = activeVersionIndex;
       const targetVersion = message.versions[activeVersionIndex];
       message.content = targetVersion.content;
@@ -87,7 +89,14 @@ export async function PATCH(req: Request) {
     }
 
     if (typeof content === 'string' && message.role === 'user') {
-      message.content = content.trim();
+      const trimmed = content.trim();
+      if (!trimmed) {
+        return NextResponse.json({ error: 'Message content cannot be empty' }, { status: 400 });
+      }
+      if (trimmed.length > 50000) {
+        return NextResponse.json({ error: 'Message content exceeds 50,000 characters' }, { status: 400 });
+      }
+      message.content = trimmed;
     }
 
     await message.save();

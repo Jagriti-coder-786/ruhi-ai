@@ -17,11 +17,13 @@ import {
   Volume2,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { useTheme } from '@/providers/ThemeProvider';
 import { IMemory } from '@/types';
 import { UpgradeModal } from '@/components/modals/UpgradeModal';
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
+  const { theme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<'profile' | 'ai' | 'memory' | 'billing'>('profile');
 
   // Form states
@@ -34,6 +36,7 @@ export default function SettingsPage() {
   const [responseLength, setResponseLength] = useState<'standard' | 'short' | 'detailed'>('standard');
 
   const [savedNotice, setSavedNotice] = useState(false);
+  const [errorNotice, setErrorNotice] = useState('');
   const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   // Memories
@@ -74,12 +77,14 @@ export default function SettingsPage() {
 
   const handleSavePreferences = async () => {
     try {
+      setErrorNotice('');
       const res = await fetch('/api/auth/me', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name,
           preferences: {
+            theme,
             defaultModel,
             systemPrompt,
             temperature,
@@ -94,9 +99,15 @@ export default function SettingsPage() {
         await refreshUser();
         setSavedNotice(true);
         setTimeout(() => setSavedNotice(false), 2500);
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setErrorNotice(data.error || 'Failed to update preferences');
+        setTimeout(() => setErrorNotice(''), 4000);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save error:', err);
+      setErrorNotice(err.message || 'Failed to update preferences');
+      setTimeout(() => setErrorNotice(''), 4000);
     }
   };
 
@@ -166,6 +177,12 @@ export default function SettingsPage() {
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-semibold">
             <Check className="w-3.5 h-3.5" />
             <span>Preferences Saved</span>
+          </div>
+        )}
+
+        {errorNotice && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold">
+            <span>{errorNotice}</span>
           </div>
         )}
       </nav>
@@ -256,6 +273,36 @@ export default function SettingsPage() {
                       value={user?.email || ''}
                       className="w-full px-4 py-2.5 rounded-xl bg-slate-950/40 border border-slate-800/60 text-sm text-slate-500 cursor-not-allowed"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Interface Theme
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setTheme('dark')}
+                        className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                          theme === 'dark'
+                            ? 'bg-purple-600/20 border-purple-500 text-white shadow-sm'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <span>🌙 Dark Theme (Default)</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTheme('light')}
+                        className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                          theme === 'light'
+                            ? 'bg-purple-600/20 border-purple-500 text-white shadow-sm'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        <span>☀️ Light Theme</span>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="pt-2">

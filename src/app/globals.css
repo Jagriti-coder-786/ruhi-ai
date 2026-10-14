@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "katex/dist/katex.min.css";
 
 :root {
   --background: #090d16;
@@ -168,3 +169,130 @@ body {
 .prose-chat th {
   background: rgba(255, 255, 255, 0.05);
 }
+
+/* Light theme overrides for high contrast and readability */
+[data-theme="light"] body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+[data-theme="light"] .bg-\[\#090d16\],
+[data-theme="light"] .bg-\[\#080c16\],
+[data-theme="light"] .bg-\[\#070a13\],
+[data-theme="light"] .bg-\[\#070a12\],
+[data-theme="light"] .bg-\[\#0e1322\],
+[data-theme="light"] .bg-\[\#0d121f\],
+[data-theme="light"] .bg-\[\#0c101d\],
+[data-theme="light"] .bg-\[\#090d18\] {
+  background-color: var(--background) !important;
+}
+
+[data-theme="light"] .bg-slate-900\/60,
+[data-theme="light"] .bg-slate-900\/80,
+[data-theme="light"] .bg-slate-900\/85,
+[data-theme="light"] .bg-slate-900\/90,
+[data-theme="light"] .bg-slate-900 {
+  background-color: var(--surface) !important;
+}
+
+[data-theme="light"] .bg-slate-950,
+[data-theme="light"] .bg-slate-950\/70,
+[data-theme="light"] .bg-slate-950\/80 {
+  background-color: var(--surface-raised) !important;
+}
+
+[data-theme="light"] .text-slate-100,
+[data-theme="light"] .text-slate-200 {
+  color: var(--foreground) !important;
+}
+
+[data-theme="light"] .text-slate-300,
+[data-theme="light"] .text-slate-400 {
+  color: var(--foreground-muted) !important;
+}
+
+[data-theme="light"] .border-slate-800,
+[data-theme="light"] .border-slate-800\/80,
+[data-theme="light"] .border-slate-800\/60,
+[data-theme="light"] .border-slate-700 {
+  border-color: var(--border) !important;
+}
+
+[data-theme="light"] .prose-chat pre {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+}
+
+[data-theme="light"] .prose-chat :not(pre) > code {
+  background: rgba(0, 0, 0, 0.08);
+  color: #6d28d9;
+}
+
+[data-theme="light"] .prose-chat th,
+[data-theme="light"] .prose-chat td {
+  border-color: #cbd5e1;
+}
+
+[data-theme="light"] .prose-chat th {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Accessibility: Visible Focus Rings */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Accessibility: Reduced Motion Preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-pulse,
+  .animate-spin,
+  .animate-ping,
+  .streaming-cursor {
+    animation: none !important;
+  }
+}
+
+/* ==========================================================================
+   MERMAID DIAGRAM STYLING & RESPONSIVENESS
+   ========================================================================== */
+.mermaid,
+div[dangerouslysetinnerhtml] svg,
+svg[id^="mermaid-"] {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+  margin: 0 auto;
+}
+
+/* Ensure node labels, arrows, and borders maintain crisp readability */
+svg[id^="mermaid-"] text {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+  font-weight: 500;
+}
+
+[data-theme="dark"] svg[id^="mermaid-"] {
+  color-scheme: dark;
+}
+
+[data-theme="light"] svg[id^="mermaid-"] {
+  color-scheme: light;
+}
+

@@ -13,6 +13,7 @@ import {
   Share2,
   Cpu,
   Moon,
+  Sun,
   X,
   Clock,
   LayoutGrid,
@@ -20,6 +21,7 @@ import {
   CalendarClock,
 } from 'lucide-react';
 import { ModelCapability } from '@/types';
+import { useTheme } from '@/providers/ThemeProvider';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -55,6 +57,7 @@ export function CommandPalette({
   onOpenTasks,
 }: CommandPaletteProps) {
   const router = useRouter();
+  const { theme, toggleTheme } = useTheme();
   const [query, setQuery] = useState('');
 
   // Handle global shortcut Ctrl/Cmd + K
@@ -73,6 +76,16 @@ export function CommandPalette({
   if (!isOpen) return null;
 
   const actions = [
+    {
+      id: 'theme_toggle',
+      title: `Toggle Theme: Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`,
+      shortcut: '',
+      icon: theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-purple-400" />,
+      run: () => {
+        toggleTheme();
+        onClose();
+      },
+    },
     {
       id: 'new_chat',
       title: 'New Chat',

@@ -1,7 +1,7 @@
 'use client';
 
-import React from 'react';
-import { CheckCircle2, Circle, Loader2, XCircle, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useState } from 'react';
+import { CheckCircle2, Circle, Loader2, XCircle, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 
 export interface AgentTaskPlanStep {
   name: string;
@@ -9,14 +9,79 @@ export interface AgentTaskPlanStep {
   agentType: string;
 }
 
-interface AgentTaskPlanProps {
+export interface AgentTaskPlanProps {
+  taskId?: string;
   title: string;
   steps: AgentTaskPlanStep[];
   status: 'queued' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+  onApprove?: () => void | Promise<void>;
+  onReject?: () => void | Promise<void>;
+  onStatusChange?: (newStatus: 'running' | 'cancelled') => void;
 }
 
-export function AgentTaskPlan({ title, steps, status }: AgentTaskPlanProps) {
-  const [isExpanded, setIsExpanded] = React.useState(true);
+export function AgentTaskPlan({
+  taskId,
+  title,
+  steps,
+  status: initialStatus,
+  onApprove,
+  onReject,
+  onStatusChange,
+}: AgentTaskPlanProps) {
+  const [isExpanded, setIsExpanded] = useState(true);
+  const [currentStatus, setCurrentStatus] = useState(initialStatus);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Sync with prop updates if they change externally
+  React.useEffect(() => {
+    setCurrentStatus(initialStatus);
+  }, [initialStatus]);
+
+  const handleDecision = async (decision: 'approved' | 'rejected') => {
+    setErrorMsg(null);
+    setIsSubmitting(true);
+
+    try {
+      if (decision === 'approved') {
+        if (onApprove) {
+          await onApprove();
+          setCurrentStatus('running');
+          onStatusChange?.('running');
+          return;
+        }
+      } else {
+        if (onReject) {
+          await onReject();
+          setCurrentStatus('cancelled');
+          onStatusChange?.('cancelled');
+          return;
+        }
+      }
+
+      if (taskId) {
+        const res = await fetch(`/api/agent-tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approvalDecision: decision }),
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to submit ${decision} decision`);
+        }
+
+        const newStatus = decision === 'approved' ? 'running' : 'cancelled';
+        setCurrentStatus(newStatus);
+        onStatusChange?.(newStatus);
+      }
+    } catch (err: any) {
+      console.error('[AgentTaskPlan] Decision error:', err);
+      setErrorMsg(err.message || 'Action failed. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const getStatusIcon = (stepStatus: string) => {
     switch (stepStatus) {
@@ -36,15 +101,26 @@ export function AgentTaskPlan({ title, steps, status }: AgentTaskPlanProps) {
       <div 
         className="px-4 py-3 bg-[#13172b] flex items-center justify-between cursor-pointer hover:bg-[#181c33] transition-colors"
         onClick={() => setIsExpanded(!isExpanded)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setIsExpanded(!isExpanded);
+          }
+        }}
+        aria-expanded={isExpanded}
       >
         <div className="flex items-center gap-3">
           <div className="p-2 bg-blue-500/10 rounded-lg">
-            {status === 'running' ? (
+            {currentStatus === 'running' ? (
               <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-            ) : status === 'completed' ? (
+            ) : currentStatus === 'completed' ? (
               <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-            ) : status === 'waiting_approval' ? (
+            ) : currentStatus === 'waiting_approval' ? (
               <div className="w-5 h-5 rounded-full bg-amber-500 animate-pulse" />
+            ) : currentStatus === 'cancelled' ? (
+              <XCircle className="w-5 h-5 text-slate-400" />
             ) : (
               <Circle className="w-5 h-5 text-slate-400" />
             )}
@@ -53,13 +129,16 @@ export function AgentTaskPlan({ title, steps, status }: AgentTaskPlanProps) {
             <h3 className="text-sm font-semibold text-white flex items-center gap-2">
               Autonomous Task
               <span className="px-2 py-0.5 rounded-full bg-slate-800 text-[10px] font-medium text-slate-300 uppercase tracking-wider">
-                {status.replace('_', ' ')}
+                {currentStatus.replace('_', ' ')}
               </span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">{title}</p>
           </div>
         </div>
-        <button className="text-slate-400 hover:text-white p-1">
+        <button
+          className="text-slate-400 hover:text-white p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded"
+          aria-label={isExpanded ? 'Collapse plan' : 'Expand plan'}
+        >
           {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
       </div>
@@ -86,17 +165,32 @@ export function AgentTaskPlan({ title, steps, status }: AgentTaskPlanProps) {
             ))}
           </div>
 
-          {status === 'waiting_approval' && (
+          {currentStatus === 'waiting_approval' && (
             <div className="mt-6 p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
               <h5 className="text-sm font-semibold text-amber-400 mb-2">Action Requires Approval</h5>
               <p className="text-xs text-amber-400/80 mb-4">
-                The agent is requesting permission to modify files in the codebase.
+                The agent is requesting permission to execute the plan steps.
               </p>
+              {errorMsg && (
+                <div className="mb-3 p-2 bg-rose-500/15 border border-rose-500/30 rounded-lg text-xs text-rose-300 flex items-center gap-1.5">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
               <div className="flex gap-2">
-                <button className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-medium rounded-lg transition-colors">
+                <button
+                  disabled={isSubmitting}
+                  onClick={() => handleDecision('approved')}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors flex items-center gap-1.5"
+                >
+                  {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
                   Review & Approve
                 </button>
-                <button className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium rounded-lg transition-colors">
+                <button
+                  disabled={isSubmitting}
+                  onClick={() => handleDecision('rejected')}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-300 text-xs font-medium rounded-lg transition-colors"
+                >
                   Reject
                 </button>
               </div>

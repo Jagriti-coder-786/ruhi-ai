@@ -32,10 +32,12 @@ class SafeDiagnosticsEngine {
    */
   private sanitizeMetadata(data: Record<string, any>): Record<string, any> {
     const sanitized: Record<string, any> = {};
-    const sensitiveKeys = /password|secret|key|token|auth|bearer|credential|cookie/i;
+    const sensitiveKeys = /password|secret|^api_?key$|auth|bearer|credential|cookie|jwt/i;
 
     for (const [k, v] of Object.entries(data)) {
-      if (sensitiveKeys.test(k)) {
+      if (typeof v === 'number' || typeof v === 'boolean') {
+        sanitized[k] = v;
+      } else if (sensitiveKeys.test(k) || (k.toLowerCase().includes('token') && !k.toLowerCase().includes('count'))) {
         sanitized[k] = '[REDACTED]';
       } else if (typeof v === 'string') {
         // Scrub if it looks like an API key or JWT token
